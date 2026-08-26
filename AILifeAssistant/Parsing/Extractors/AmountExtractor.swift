@@ -76,7 +76,9 @@ enum AmountExtractor {
     /// Разбирает «300», «1 500,50», «$46», «46 USD», «2к».
     private static func extractNumeric(from text: String, defaultCurrency: String?) -> Result? {
         // Отрицательный просмотр назад отсекает числа внутри слов и дат.
-        let pattern = "(?<![\p{L}\d])(\d{1,3}(?:[ .,]\d{3})+|\d+)(?:[.,](\d{1,2}))?"
+        // Raw-строка: в регексе много обратных слэшей, и экранировать
+        // их дважды значит однажды ошибиться.
+        let pattern = #"(?<![\p{L}\d])(\d{1,3}(?:[ .,]\d{3})+|\d+)(?:[.,](\d{1,2}))?"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
 
         let nsText = text as NSString

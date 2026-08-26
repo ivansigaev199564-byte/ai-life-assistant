@@ -61,8 +61,8 @@ enum DateExtractor {
 
     /// «через час», «через 20 минут», «через 3 дня», «in 2 hours».
     private static func extractRelative(from text: String, context: ParsingContext) -> Result? {
-        let pattern = "(через|in)\s+(\d+|полчаса|пол часа|час|день|неделю|a|an)?\s*"
-            + "(секунд\w*|минут\w*|час\w*|дн\w*|день|недел\w*|месяц\w*|"
+        let pattern = #"(через|in)\s+(\d+|полчаса|пол часа|час|день|неделю|a|an)?\s*"#
+            + #"(секунд\w*|минут\w*|час\w*|дн\w*|день|недел\w*|месяц\w*|"#
             + "seconds?|minutes?|hours?|days?|weeks?|months?)?"
 
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
@@ -233,7 +233,7 @@ enum DateExtractor {
     /// «в девять», «в 9», «в 15:30», «at 9 pm», «в половине десятого».
     private static func extractTimeOfDay(from text: String, context: ParsingContext) -> TimeOfDay? {
         // Числовое время с необязательными минутами и суффиксом am/pm.
-        let numericPattern = "(?:в|at|к)\s*(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|утра|дня|вечера|ночи)?"
+        let numericPattern = #"(?:в|at|к)\s*(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|утра|дня|вечера|ночи)?"#
         if let regex = try? NSRegularExpression(pattern: numericPattern) {
             let nsText = text as NSString
             if let match = regex.firstMatch(
@@ -287,7 +287,7 @@ enum DateExtractor {
     /// «в девять», «at nine». Час без уточнения трактуем по здравому смыслу:
     /// девять это утро, а три это день, потому что в три ночи не назначают дел.
     private static func extractSpelledTime(from text: String) -> TimeOfDay? {
-        let pattern = "(?:в|at|к)\s+([\p{L}]+)"
+        let pattern = #"(?:в|at|к)\s+([\p{L}]+)"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
 
         let nsText = text as NSString
