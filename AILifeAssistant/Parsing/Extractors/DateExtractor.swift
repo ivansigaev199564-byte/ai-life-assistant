@@ -42,6 +42,13 @@ enum DateExtractor {
     static func extract(from text: String, context: ParsingContext) -> Result? {
         let normalized = IntentKeywords.normalize(text)
 
+        // Дробное время идёт первым. Иначе «полшестого вечера» ловится
+        // разбором частей суток и становится семью вечера, а «полдевятого»
+        // достаётся системному детектору и превращается в девять ровно.
+        if let half = extractHalfHourResult(from: normalized, context: context) {
+            return half
+        }
+
         if let relative = extractRelative(from: normalized, context: context) {
             return relative
         }
@@ -326,6 +333,46 @@ enum DateExtractor {
         "six": 18, "seven": 19, "eight": 20, "nine": 9, "ten": 10,
         "eleven": 11, "twelve": 12
     ]
+
+    /// Дробное время вместе с днём, к которому оно относится.
+    private static func extractHalfHourResult(
+        from normalized: String,
+        context: ParsingContext
+    ) -> Result? {
+        guard let time = extractHalfHour(from: normalized) else { return nil }
+
+        let calendar = context.calendar
+        let dayOffset = namedDayOffset(in: normalized)
+
+        let base = calendar.date(byAdding: .day, value: dayOffset, to: context.referenceDate)
+            ?? context.referenceDate
+
+        var date = calendar.date(
+            bySettingHour: time.hour,
+            minute: time.minute,
+            second: 0,
+            of: base
+        ) ?? base
+
+        // Время на сегодня, которое уже прошло, относится к завтрашнему дню:
+        // сказанное в полдень «в полдевятого» означает утро следующего дня.
+        if dayOffset == 0, date <= context.referenceDate {
+            date = calendar.date(byAdding: .day, value: 1, to: date) ?? date
+        }
+
+        return Result(date: date, hasExplicitTime: true, matchedText: "полчаса")
+    }
+
+    /// Сдвиг в днях от названного дня: «завтра» это единица.
+    private static func namedDayOffset(in normalized: String) -> Int {
+        if normalized.contains("послезавтра") || normalized.contains("day after tomorrow") {
+            return 2
+        }
+        if normalized.contains("завтра") || normalized.contains("tomorrow") {
+            return 1
+        }
+        return 0
+    }
 
     /// «полдевятого», «пол девятого», «в половине девятого».
     private static func extractHalfHour(from text: String) -> TimeOfDay? {
