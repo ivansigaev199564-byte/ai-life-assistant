@@ -127,17 +127,21 @@ final class ProcessingQueue {
 
         let context = makeContext(for: capture)
 
+        // Идентификатор и текст вынимаются до замыкания: сам объект
+        // захватывать нельзя, он не Sendable и может стать недействительным.
+        let captureID = capture.id
+        let text = capture.text
+
         do {
             let outcome = try await pipeline.run(
-                text: capture.text,
+                text: text,
                 context: context,
                 onPreliminary: { [weak self] preliminary in
                     // Предварительный разбор материализуем сразу: пользователь
                     // видит созданные записи, пока модели ещё думают. Запись
                     // ищем заново: за это время она могла быть удалена.
-                    let id = capture.id
                     Task { @MainActor [weak self] in
-                        guard let self, let current = self.capture(withID: id) else { return }
+                        guard let self, let current = self.capture(withID: captureID) else { return }
                         self.materializer.materialize(preliminary, for: current)
                     }
                 }
