@@ -152,14 +152,13 @@ final class AppEnvironment {
             // держит аудиостек и роняет прогон при пересоздании.
             sessionManager: AudioSessionManager(observesSystemEvents: false)
         )
-        // В тестах работает только локальный разбор: сети у тестов нет.
+        // Очередь создаётся, но к координатору не подключается: фоновая
+        // задача разбора переживает тест, а контейнер к тому моменту уже
+        // уничтожен. Тесты разбора работают с конвейером напрямую.
         let queue = ProcessingQueue(
             modelContext: container.mainContext,
             pipeline: ParsingPipeline()
         )
-        coordinator.onCaptureSaved = { capture in
-            queue.enqueue(capture)
-        }
 
         return Testing(
             container: container,

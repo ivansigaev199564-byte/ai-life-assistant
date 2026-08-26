@@ -44,8 +44,35 @@ final class ProcessingQueue {
     // MARK: Публичные операции
 
     /// Ставит захват в обработку. Вызывается сразу после сохранения записи.
+    ///
+    /// В задачу уходит идентификатор, а не сам объект: разбор занимает
+    /// секунды, и за это время запись может быть удалена пользователем
+    /// или контекст пересоздан. Обращение к уничтоженному объекту SwiftData
+    /// роняет приложение без возможности перехвата.
     func enqueue(_ capture: CaptureItem) {
-        Task { await process(capture) }
+        let id = capture.id
+        Task { [weak self] in
+            await self?.process(captureID: id)
+        }
+    }
+
+    /// Находит захват по идентификатору в текущем контексте.
+    ///
+    /// Возвращает nil, если запись успела исчезнуть: это штатная ситуация,
+    /// а не ошибка.
+    private func capture(withID id: UUID) -> CaptureItem? {
+        let descriptor = FetchDescriptor<CaptureItem>(
+            predicate: #Predicate { $0.id == id }
+        )
+        return try? modelContext.fetch(descriptor).first
+    }
+
+    private func process(captureID: UUID) async {
+        guard let capture = capture(withID: captureID) else {
+            Log.data.debug("Захват исчез до начала разбора")
+            return
+        }
+        await process(capture)
     }
 
     /// Разбирает все захваты, ожидающие обработки.
@@ -106,10 +133,12 @@ final class ProcessingQueue {
                 context: context,
                 onPreliminary: { [weak self] preliminary in
                     // Предварительный разбор материализуем сразу: пользователь
-                    // видит созданные записи, пока модели ещё думают.
+                    // видит созданные записи, пока модели ещё думают. Запись
+                    // ищем заново: за это время она могла быть удалена.
+                    let id = capture.id
                     Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        self.materializer.materialize(preliminary, for: capture)
+                        guard let self, let current = self.capture(withID: id) else { return }
+                        self.materializer.materialize(preliminary, for: current)
                     }
                 }
             )
