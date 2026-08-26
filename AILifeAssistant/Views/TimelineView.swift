@@ -23,7 +23,9 @@ struct TimelineView: View {
                 EmptyStateView(
                     symbol: "mic.badge.plus",
                     title: "Пока пусто",
-                    message: "Нажмите «Говорить» и скажите что угодно. Запись появится здесь через мгновение."
+                    // Конкретная фраза вместо приглашения «скажите что угодно»:
+                    // от неопределённости человек как раз и молчит.
+                    message: "Нажмите «Говорить» и скажите, например: «купил кофе за 300» или «напомни завтра позвонить в банк»."
                 )
                 .frame(maxHeight: .infinity, alignment: .center)
             } else if filteredCaptures.isEmpty {

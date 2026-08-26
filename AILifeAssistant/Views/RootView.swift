@@ -11,6 +11,7 @@ struct RootView: View {
     @Environment(CaptureCoordinator.self) private var coordinator
     @Environment(PermissionsManager.self) private var permissions
     @Environment(\.capabilities) private var capabilities
+    @Environment(AppSettings.self) private var settings
     @Environment(UndoService.self) private var undoService
     @Environment(ProcessingQueue.self) private var processingQueue
 
@@ -21,6 +22,15 @@ struct RootView: View {
 
     /// Записи, которые приложение поняло неуверенно.
     @Query private var allCaptures: [CaptureItem]
+
+    /// Первый запуск: голосовой интерфейс не объясняет себя сам,
+    /// и без примеров фраз человек просто не знает, что сказать.
+    private var showOnboarding: Binding<Bool> {
+        Binding(
+            get: { !settings.hasCompletedOnboarding },
+            set: { shown in if !shown { settings.hasCompletedOnboarding = true } }
+        )
+    }
 
     private var reviewCount: Int {
         allCaptures.filter { $0.needsReview || $0.notes.contains(where: \.needsReview) }.count
@@ -48,6 +58,11 @@ struct RootView: View {
                 if coordinator.phase.isActive {
                     RecordingOverlay()
                         .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                }
+            }
+            .fullScreenCover(isPresented: showOnboarding) {
+                OnboardingView {
+                    settings.hasCompletedOnboarding = true
                 }
             }
             .animation(DS.Motion.phase, value: coordinator.phase)
