@@ -20,6 +20,10 @@ final class ProcessingQueue {
     private(set) var pendingCount = 0
     private(set) var lastResult: EntityMaterializer.Result?
 
+    /// Вызывается после материализации: синхронизация узнаёт, что у захвата
+    /// появились или изменились производные сущности.
+    var onEntitiesMaterialized: ((CaptureItem) -> Void)?
+
     private let modelContext: ModelContext
     private let pipeline: ParsingPipeline
     private let materializer: EntityMaterializer
@@ -113,6 +117,7 @@ final class ProcessingQueue {
             // Итоговый разбор обновит те же записи по идентификаторам элементов.
             let result = materializer.materialize(outcome.final, for: capture)
             lastResult = result
+            onEntitiesMaterialized?(capture)
 
             Log.data.notice("""
                 Разбор завершён: создано \(result.created), обновлено \(result.updated), \

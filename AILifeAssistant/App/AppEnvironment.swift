@@ -24,6 +24,10 @@ final class AppEnvironment {
     let coordinator: CaptureCoordinator
     let processingQueue: ProcessingQueue
     let apiConfiguration: APIConfiguration
+    let networkMonitor: NetworkMonitor
+    let auth: AuthService
+    let syncEngine: SyncEngine
+    let searchService: SearchService
 
     private init() {
         let container: ModelContainer
@@ -60,10 +64,41 @@ final class AppEnvironment {
             )
         )
 
-        // Сохранённый захват сразу уходит в разбор.
+        // Сеть, вход и синхронизация. Бэкенд может быть не настроен:
+        // тогда всё это остаётся в покое, а приложение работает локально.
+        let networkMonitor = NetworkMonitor()
+        let auth = AuthService()
+        let syncQueue = SyncQueue()
+
+        self.networkMonitor = networkMonitor
+        self.auth = auth
+        self.syncEngine = SyncEngine(
+            modelContext: container.mainContext,
+            queue: syncQueue,
+            networkMonitor: networkMonitor,
+            sessionProvider: { auth.accessToken }
+        )
+        self.searchService = SearchService(
+            modelContext: container.mainContext,
+            networkMonitor: networkMonitor,
+            sessionProvider: { auth.accessToken }
+        )
+
+        // Сохранённый захват сразу уходит в разбор и в очередь отправки.
         let queue = processingQueue
+        let sync = syncEngine
         coordinator.onCaptureSaved = { capture in
             queue.enqueue(capture)
+            sync.markChanged(.capture, id: capture.id)
+        }
+
+        // Разбор породил сущности: их тоже нужно отправить.
+        processingQueue.onEntitiesMaterialized = { capture in
+            sync.markChanged(.capture, id: capture.id)
+            capture.notes.forEach { sync.markChanged(.note, id: $0.id) }
+            capture.tasks.forEach { sync.markChanged(.task, id: $0.id) }
+            capture.reminders.forEach { sync.markChanged(.reminder, id: $0.id) }
+            capture.expenses.forEach { sync.markChanged(.expense, id: $0.id) }
         }
 
         Log.capabilities.notice("Возможности устройства:\n\(self.capabilities.debugSummary, privacy: .public)")
@@ -85,6 +120,12 @@ final class AppEnvironment {
         // Захваты, которые не успели разобраться в прошлый раз.
         Task { [processingQueue] in
             await processingQueue.processPending()
+        }
+
+        // Синхронизация, если бэкенд настроен и есть сессия.
+        Task { [auth, syncEngine] in
+            await auth.refreshIfNeeded()
+            await syncEngine.sync()
         }
     }
 
