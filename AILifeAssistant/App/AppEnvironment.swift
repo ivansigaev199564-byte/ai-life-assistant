@@ -31,6 +31,7 @@ final class AppEnvironment {
     let notifications: NotificationService
     let eventKit: EventKitService
     let reminderMirror: ReminderMirror
+    let undoService: UndoService
 
     private init() {
         let container: ModelContainer
@@ -93,7 +94,18 @@ final class AppEnvironment {
         coordinator.onCaptureSaved = { capture in
             queue.enqueue(capture)
             sync.markChanged(.capture, id: capture.id)
+            undo.register(captureCreated: capture)
         }
+
+        // Исправление показывается тем же баннером: пользователь видит,
+        // что именно поняло приложение из его поправки.
+        processingQueue.onCorrectionApplied = { outcome in
+            undo.register(correction: outcome, captureID: UUID())
+        }
+
+        // Отмена последнего действия: пять секунд на передумать.
+        let undo = UndoService(modelContext: container.mainContext)
+        self.undoService = undo
 
         // Системные интеграции: уведомления и зеркалирование напоминаний.
         let notifications = NotificationService()
@@ -125,6 +137,10 @@ final class AppEnvironment {
                     await mirror.register(reminder)
                 }
             }
+
+            // Баннер обновляется на результат разбора: пока шёл разбор,
+            // в нём был сырой текст, теперь видно, что создано.
+            undo.register(captureCreated: capture)
         }
 
         Log.capabilities.notice("Возможности устройства:\n\(self.capabilities.debugSummary, privacy: .public)")

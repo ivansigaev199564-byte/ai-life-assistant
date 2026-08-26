@@ -11,10 +11,20 @@ struct RootView: View {
     @Environment(CaptureCoordinator.self) private var coordinator
     @Environment(PermissionsManager.self) private var permissions
     @Environment(\.capabilities) private var capabilities
+    @Environment(UndoService.self) private var undoService
+    @Environment(ProcessingQueue.self) private var processingQueue
 
     @State private var isShowingSettings = false
+    @State private var isShowingReview = false
     @State private var isShowingTextInput = false
     @State private var draftText = ""
+
+    /// Записи, которые приложение поняло неуверенно.
+    @Query private var allCaptures: [CaptureItem]
+
+    private var reviewCount: Int {
+        allCaptures.filter { $0.needsReview || $0.notes.contains(where: \.needsReview) }.count
+    }
 
     var body: some View {
         NavigationStack {
@@ -30,6 +40,9 @@ struct RootView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $isShowingSettings) { SettingsView() }
+            .sheet(isPresented: $isShowingReview) {
+                ReviewInboxView(processingQueue: processingQueue)
+            }
             .sheet(isPresented: $isShowingTextInput) { textInputSheet }
             .overlay {
                 if coordinator.phase.isActive {
@@ -38,6 +51,7 @@ struct RootView: View {
                 }
             }
             .animation(DS.Motion.phase, value: coordinator.phase)
+            .animation(DS.Motion.enter, value: undoService.pending?.id)
         }
     }
 
@@ -47,6 +61,22 @@ struct RootView: View {
         ScreenHeader(title: "Инбокс", subtitle: subtitle) {
             AnyView(
                 HStack(spacing: DS.Spacing.xs) {
+                    if reviewCount > 0 {
+                        Button {
+                            isShowingReview = true
+                        } label: {
+                            Image(systemName: "questionmark.circle")
+                                .overlay(alignment: .topTrailing) {
+                                    Circle()
+                                        .fill(DS.Palette.warning)
+                                        .frame(width: 7, height: 7)
+                                        .offset(x: 3, y: -3)
+                                }
+                        }
+                        .buttonStyle(CircleButtonStyle())
+                        .accessibilityLabel("На проверку, записей: \(reviewCount)")
+                    }
+
                     Button {
                         draftText = ""
                         isShowingTextInput = true
@@ -85,6 +115,17 @@ struct RootView: View {
             if case .failed(let error) = coordinator.phase {
                 errorBanner(error)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            // Баннер отмены стоит над кнопкой записи: именно туда смотрит
+            // человек сразу после того, как отпустил её.
+            if let pending = undoService.pending {
+                UndoBanner(
+                    action: pending,
+                    onUndo: { undoService.undo() },
+                    onDismiss: { undoService.dismiss() }
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
             Button {
@@ -185,5 +226,6 @@ struct RootView: View {
         .environment(preview.settings)
         .environment(preview.permissions)
         .environment(preview.processingQueue)
+        .environment(UndoService(modelContext: preview.container.mainContext))
         .modelContainer(preview.container)
 }

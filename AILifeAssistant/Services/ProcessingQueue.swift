@@ -24,6 +24,10 @@ final class ProcessingQueue {
     /// появились или изменились производные сущности.
     var onEntitiesMaterialized: ((CaptureItem) -> Void)?
 
+    /// Вызывается, когда фраза оказалась исправлением предыдущей записи.
+    /// Интерфейс показывает баннер с тем, что именно исправлено.
+    var onCorrectionApplied: ((CorrectionApplier.Outcome) -> Void)?
+
     private let modelContext: ModelContext
     private let pipeline: ParsingPipeline
     private let materializer: EntityMaterializer
@@ -127,6 +131,13 @@ final class ProcessingQueue {
 
         let context = makeContext(for: capture)
 
+        // Исправление предыдущей записи, а не новая запись.
+        //
+        // Проверяется до разбора: человек, поправляющий себя вслух, ждёт,
+        // что изменится сказанное раньше, а не появится вторая запись
+        // рядом с ошибочной.
+        if applyCorrectionIfNeeded(from: capture, context: context) { return }
+
         // Идентификатор и текст вынимаются до замыкания: сам объект
         // захватывать нельзя, он не Sendable и может стать недействительным.
         let captureID = capture.id
@@ -162,6 +173,31 @@ final class ProcessingQueue {
         } catch {
             handle(.invalidResponse(error.localizedDescription), for: capture)
         }
+    }
+
+    /// Пробует применить фразу как исправление предыдущей записи.
+    /// - Returns: true, если исправление применено и разбор больше не нужен.
+    private func applyCorrectionIfNeeded(from capture: CaptureItem, context: ParsingContext) -> Bool {
+        guard CorrectionDetector.looksLikeCorrection(capture.text),
+              let correction = CorrectionDetector.detect(in: capture.text, context: context)
+        else { return false }
+
+        let applier = CorrectionApplier(modelContext: modelContext)
+
+        // Цель ищется по времени создания текущего захвата: иначе он сам
+        // окажется самой свежей записью и станет исправлять себя.
+        guard applier.recentCapture(before: capture.createdAt) != nil else { return false }
+
+        let outcome = applier.apply(correction, at: capture.createdAt)
+        guard outcome.action != .noTarget else { return false }
+
+        // Сама фраза-исправление в ленте не нужна: она уже сделала работу.
+        modelContext.delete(capture)
+        try? modelContext.save()
+
+        onCorrectionApplied?(outcome)
+        Log.data.notice("Применено исправление")
+        return true
     }
 
     private func handle(_ error: ParsingError, for capture: CaptureItem) {
