@@ -17,7 +17,10 @@ final class AudioSessionManager {
         case mediaServicesReset
     }
 
-    private let session = AVAudioSession.sharedInstance()
+    /// Обращение к общей аудиосессии ленивое: её захват в конструкторе
+    /// поднимает аудиостек на каждое создание менеджера, а в тестах
+    /// координатор создаётся десятки раз подряд.
+    private var session: AVAudioSession { .sharedInstance() }
     /// deinit не изолирован главным актором, поэтому список наблюдателей
     /// помечен как доступный вне изоляции: он только создаётся и очищается.
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
@@ -26,7 +29,11 @@ final class AudioSessionManager {
     /// закрывает сессию и сохраняет то, что успел распознать.
     var onInterruption: ((Interruption) -> Void)?
 
-    init() {
+    /// - Parameter observesSystemEvents: подписываться ли на прерывания
+    ///   и смену маршрута. В тестах это лишнее: наблюдатели держат
+    ///   аудиостек, который тестам логики не нужен вовсе.
+    init(observesSystemEvents: Bool = true) {
+        guard observesSystemEvents else { return }
         registerObservers()
     }
 

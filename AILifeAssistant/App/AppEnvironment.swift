@@ -106,7 +106,10 @@ final class AppEnvironment {
         let coordinator = CaptureCoordinator(
             modelContext: container.mainContext,
             permissions: permissions,
-            settings: settings
+            settings: settings,
+            // Тестам аудио не нужно: подписка на системные события
+            // держит аудиостек и роняет прогон при пересоздании.
+            sessionManager: AudioSessionManager(observesSystemEvents: false)
         )
         // В тестах работает только локальный разбор: сети у тестов нет.
         let queue = ProcessingQueue(
