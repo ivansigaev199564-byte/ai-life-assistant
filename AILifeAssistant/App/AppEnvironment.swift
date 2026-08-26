@@ -28,6 +28,9 @@ final class AppEnvironment {
     let auth: AuthService
     let syncEngine: SyncEngine
     let searchService: SearchService
+    let notifications: NotificationService
+    let eventKit: EventKitService
+    let reminderMirror: ReminderMirror
 
     private init() {
         let container: ModelContainer
@@ -92,13 +95,36 @@ final class AppEnvironment {
             sync.markChanged(.capture, id: capture.id)
         }
 
-        // Разбор породил сущности: их тоже нужно отправить.
+        // Системные интеграции: уведомления и зеркалирование напоминаний.
+        let notifications = NotificationService()
+        let eventKit = EventKitService()
+        let mirror = ReminderMirror(
+            modelContext: container.mainContext,
+            notifications: notifications,
+            eventKit: eventKit
+        )
+
+        self.notifications = notifications
+        self.eventKit = eventKit
+        self.reminderMirror = mirror
+
+        // Разбор породил сущности: их нужно отправить на сервер
+        // и превратить напоминания в реальные уведомления.
         processingQueue.onEntitiesMaterialized = { capture in
             sync.markChanged(.capture, id: capture.id)
             capture.notes.forEach { sync.markChanged(.note, id: $0.id) }
             capture.tasks.forEach { sync.markChanged(.task, id: $0.id) }
             capture.reminders.forEach { sync.markChanged(.reminder, id: $0.id) }
             capture.expenses.forEach { sync.markChanged(.expense, id: $0.id) }
+
+            // Напоминание без уведомления это обещание, которое приложение
+            // не выполнит: телефон просто промолчит в нужный момент.
+            let newReminders = capture.reminders
+            Task { @MainActor in
+                for reminder in newReminders {
+                    await mirror.register(reminder)
+                }
+            }
         }
 
         Log.capabilities.notice("Возможности устройства:\n\(self.capabilities.debugSummary, privacy: .public)")
@@ -126,6 +152,12 @@ final class AppEnvironment {
         Task { [auth, syncEngine] in
             await auth.refreshIfNeeded()
             await syncEngine.sync()
+        }
+
+        // Расписание уведомлений и закрытые в системе дела.
+        Task { [reminderMirror] in
+            await reminderMirror.refreshSchedule()
+            await reminderMirror.pullCompletions()
         }
     }
 

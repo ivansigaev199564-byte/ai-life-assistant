@@ -62,12 +62,12 @@ targets:
         CFBundleLocalizations: [en, ru]
         CFBundleAllowMixedLocalizations: true
         ITSAppUsesNonExemptEncryption: false
-        UIBackgroundModes: [audio, processing]
         NSSupportsLiveActivities: true
         NSMicrophoneUsageDescription: "Микрофон нужен, чтобы записывать ваши голосовые заметки и команды."
         NSSpeechRecognitionUsageDescription: "Распознавание речи превращает вашу голосовую заметку в текст."
         NSCalendarsFullAccessUsageDescription: "Доступ к календарю нужен, чтобы создавать события из ваших голосовых команд."
-        NSRemindersFullAccessUsageDescription: "Доступ к напоминаниям нужен, чтобы синхронизировать задачи с приложением Напоминания."
+        NSRemindersFullAccessUsageDescription: "Доступ к напоминаниям нужен, чтобы ваши голосовые напоминания появлялись в системном приложении Напоминания."
+        UIBackgroundModes: [audio, processing, remote-notification]
         BGTaskSchedulerPermittedIdentifiers:
           - com.ivans.ailifeassistant.sync
         UIApplicationSceneManifest:
