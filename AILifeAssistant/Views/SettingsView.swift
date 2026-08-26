@@ -272,11 +272,16 @@ struct SettingsView: View {
         _ title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+        // Содержимое вычисляется здесь, а не внутри карточки: SurfaceCard
+        // хранит своё замыкание, и передача туда неescaping-параметра
+        // не компилируется.
+        let body = content()
+
+        return VStack(alignment: .leading, spacing: DS.Spacing.xs) {
             SectionLabel(text: title)
             SurfaceCard {
                 VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-                    content()
+                    body
                 }
             }
         }
