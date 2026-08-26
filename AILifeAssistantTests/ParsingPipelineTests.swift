@@ -9,6 +9,24 @@ final class ParsingPipelineTests: XCTestCase {
         ParsingContext(referenceDate: Date(timeIntervalSince1970: 1_787_000_000), languageCode: "ru-RU")
     }
 
+    /// Потокобезопасный держатель предварительного результата.
+    private final class PreliminaryBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: ParsedIntent?
+
+        var value: ParsedIntent? {
+            lock.lock()
+            defer { lock.unlock() }
+            return stored
+        }
+
+        func set(_ intent: ParsedIntent) {
+            lock.lock()
+            stored = intent
+            lock.unlock()
+        }
+    }
+
     /// Движок, возвращающий заранее заданный результат.
     private struct StubParser: IntentParsing {
         let engine: ParsingEngine
@@ -52,14 +70,17 @@ final class ParsingPipelineTests: XCTestCase {
             )
         )
 
-        var preliminary: ParsedIntent?
+        // Результат кладётся в потокобезопасный ящик: колбэк вызывается
+        // из конкурентного контекста, и прямая запись в локальную переменную
+        // в Swift 6 станет ошибкой.
+        let box = PreliminaryBox()
         let outcome = try await pipeline.run(
             text: "нужно заказать воду",
             context: context,
-            onPreliminary: { preliminary = $0 }
+            onPreliminary: { box.set($0) }
         )
 
-        XCTAssertEqual(preliminary?.engine, .fastPath)
+        XCTAssertEqual(box.value?.engine, .fastPath)
         XCTAssertEqual(outcome.final.engine, .cloud)
         XCTAssertEqual(outcome.enginesUsed, [.fastPath, .cloud])
     }

@@ -11,6 +11,11 @@ final class AppEnvironment {
 
     static let shared = AppEnvironment()
 
+    /// Приложение запущено как хост юнит-тестов.
+    static var isRunningTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     let container: ModelContainer
     let settings: AppSettings
     let permissions: PermissionsManager
@@ -66,6 +71,10 @@ final class AppEnvironment {
 
     /// Обслуживание при запуске: чистим старые записи, прогреваем тактильный движок.
     func performStartupMaintenance() {
+        // Под тестами приложение-хост не должен выполнять фоновую работу:
+        // она конкурирует с тестами за то же хранилище и роняет прогон.
+        guard !Self.isRunningTests else { return }
+
         HapticEngine.shared.prewarm()
 
         Task.detached(priority: .utility) {

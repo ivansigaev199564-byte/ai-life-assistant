@@ -49,7 +49,22 @@ enum Persistence {
         }
 
         Log.data.notice("Группа приложений недоступна, используется локальное хранилище")
-        return try ModelContainer(for: schema, configurations: ModelConfiguration())
+        return try ModelContainer(for: schema, configurations: ModelConfiguration(url: localStoreURL()))
+    }
+
+    /// Путь локального хранилища с гарантированно существующим каталогом.
+    ///
+    /// Конфигурация по умолчанию рассчитывает, что Application Support уже
+    /// создан. В свежем контейнере симулятора его нет, и SwiftData падает
+    /// на записи файла. Поэтому каталог создаётся явно.
+    private static func localStoreURL() throws -> URL {
+        let directory = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        return directory.appendingPathComponent("AILifeAssistant.store")
     }
 
     /// Контейнер для тестов и превью: живёт в памяти и не трогает диск.
