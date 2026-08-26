@@ -88,6 +88,11 @@ final class AppEnvironment {
             sessionProvider: { auth.accessToken }
         )
 
+        // Отмена последнего действия: пять секунд на передумать.
+        // Объявляется до замыканий, которые её используют.
+        let undo = UndoService(modelContext: container.mainContext)
+        self.undoService = undo
+
         // Сохранённый захват сразу уходит в разбор и в очередь отправки.
         let queue = processingQueue
         let sync = syncEngine
@@ -102,10 +107,6 @@ final class AppEnvironment {
         processingQueue.onCorrectionApplied = { outcome in
             undo.register(correction: outcome, captureID: UUID())
         }
-
-        // Отмена последнего действия: пять секунд на передумать.
-        let undo = UndoService(modelContext: container.mainContext)
-        self.undoService = undo
 
         // Системные интеграции: уведомления и зеркалирование напоминаний.
         let notifications = NotificationService()
