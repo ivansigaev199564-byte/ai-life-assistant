@@ -98,6 +98,9 @@ jobs:
       # Сборка для симулятора, которую можно запустить в облачном симуляторе
       # (например, Appetize) и потыкать интерфейс без Mac и без устройства.
       - name: Package simulator build
+        # Собирается даже при упавших тестах: артефакт нужен, чтобы
+        # посмотреть интерфейс, и от результата тестов это не зависит.
+        if: always()
         run: |
           set -o pipefail
           xcodebuild build             -project AILifeAssistant.xcodeproj             -scheme AILifeAssistant             -configuration Debug             -sdk iphonesimulator             -derivedDataPath build/DerivedData             CODE_SIGNING_ALLOWED=NO
@@ -117,6 +120,7 @@ jobs:
           ls -lh AILifeAssistant-simulator.zip
 
       - name: Upload simulator build
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: simulator-app

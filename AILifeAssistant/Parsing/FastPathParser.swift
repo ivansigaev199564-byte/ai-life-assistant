@@ -123,8 +123,23 @@ struct FastPathParser: IntentParsing {
         let hasTaskMarker = IntentKeywords.contains(cleaned, any: IntentKeywords.task)
         let priority = IntentKeywords.priority(in: cleaned)
 
-        // Деньги важнее всего: сумма в фразе почти всегда означает трату.
-        if let amount, hasExpenseMarker || amount.currencyCode != nil {
+        // Порядок проверок важен. Просьба напомнить перебивает всё:
+        // в «напомни в девять» число это время, а не сумма, и без этого
+        // правила любая названная цифра превращала бы фразу в расход.
+        if hasReminderMarker {
+            return makeReminder(
+                from: cleaned,
+                date: date,
+                people: people,
+                priority: priority,
+                hasMarker: true,
+                context: context
+            )
+        }
+
+        // Трата: либо валюта названа вслух, либо есть глагол покупки.
+        // Одного числа недостаточно, оно может быть чем угодно.
+        if let amount, hasExpenseMarker || amount.hasExplicitCurrency {
             return makeExpense(
                 from: cleaned,
                 amount: amount,
@@ -135,14 +150,14 @@ struct FastPathParser: IntentParsing {
             )
         }
 
-        // Напоминание: явная просьба напомнить или конкретное время.
-        if hasReminderMarker || (date != nil && date?.hasExplicitTime == true) {
+        // Напоминание без слова «напомни»: спасает конкретное время.
+        if date?.hasExplicitTime == true {
             return makeReminder(
                 from: cleaned,
                 date: date,
                 people: people,
                 priority: priority,
-                hasMarker: hasReminderMarker,
+                hasMarker: false,
                 context: context
             )
         }

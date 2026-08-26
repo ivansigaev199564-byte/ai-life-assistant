@@ -74,9 +74,30 @@ final class Person {
 
     /// Совпадает ли переданное упоминание с этим человеком.
     func matches(_ candidate: String) -> Bool {
-        let normalized = Person.normalize(candidate)
-        if normalized == normalizedName { return true }
-        return aliases.contains { Person.normalize($0) == normalized }
+        if Person.isSameName(candidate, name) { return true }
+        return aliases.contains { Person.isSameName(candidate, $0) }
+    }
+
+    /// Одно ли это имя в разных падежах.
+    ///
+    /// Русская речь склоняет имена: «Мише», «Мишу», «Мишей» это тот же
+    /// Миша. Точное сравнение завело бы четыре карточки на одного человека.
+    /// Падеж меняет окончание, поэтому сравниваем основу без последней буквы.
+    ///
+    /// Короткие имена не сопоставляются: у «Ани» и «Ане» основа всего
+    /// из двух букв, и на такой длине легко склеить разных людей.
+    /// Лишняя карточка это меньшее зло, чем перепутанные люди.
+    static func isSameName(_ lhs: String, _ rhs: String) -> Bool {
+        let left = normalize(lhs)
+        let right = normalize(rhs)
+
+        if left == right { return true }
+
+        let shortest = min(left.count, right.count)
+        guard shortest >= 4 else { return false }
+
+        let stemLength = shortest - 1
+        return left.prefix(stemLength) == right.prefix(stemLength)
     }
 
     /// Нормализация: нижний регистр, без диакритики и лишних пробелов.

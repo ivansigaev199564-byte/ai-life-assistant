@@ -11,6 +11,12 @@ enum AmountExtractor {
         let amount: Decimal
         /// Код валюты по ISO 4217. Пусто, если названо только число.
         let currencyCode: String?
+        /// Валюта названа в самой фразе, а не подставлена по умолчанию.
+        ///
+        /// Различие принципиальное: без него любое числительное в речи
+        /// выглядит как трата, и «напомни в девять» превращается в расход
+        /// на девять рублей.
+        let hasExplicitCurrency: Bool
         /// Фрагмент текста, из которого взята сумма.
         let matchedText: String
     }
@@ -105,11 +111,12 @@ enum AmountExtractor {
             }
 
             let context = surroundingContext(of: match.range, in: nsText)
-            let currency = currencyCode(in: context) ?? defaultCurrency
+            let explicitCurrency = currencyCode(in: context)
 
             return Result(
                 amount: value,
-                currencyCode: currency,
+                currencyCode: explicitCurrency ?? defaultCurrency,
+                hasExplicitCurrency: explicitCurrency != nil,
                 matchedText: nsText.substring(with: match.range)
             )
         }
@@ -172,10 +179,11 @@ enum AmountExtractor {
         total += current
         guard sawNumber, total > 0 else { return nil }
 
-        let currency = currencyCode(in: normalized) ?? defaultCurrency
+        let explicitCurrency = currencyCode(in: normalized)
         return Result(
             amount: total,
-            currencyCode: currency,
+            currencyCode: explicitCurrency ?? defaultCurrency,
+            hasExplicitCurrency: explicitCurrency != nil,
             matchedText: matched.joined(separator: " ")
         )
     }

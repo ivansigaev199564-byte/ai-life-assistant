@@ -8,11 +8,6 @@ import NaturalLanguage
 /// поверх добавлена эвристика и сопоставление с уже известными людьми.
 enum PersonExtractor {
 
-    /// Сколько первых символов должно совпасть, чтобы считать «Мише»
-    /// и «Миша» одним человеком. Четыре достаточно для коротких имён
-    /// и не склеивает «Аня» с «Антон».
-    private static let matchPrefixLength = 4
-
     /// Слова, которые часто идут с заглавной буквы, но людьми не являются.
     private static let stopWords: Set<String> = [
         "я", "мне", "меня", "мы", "нам", "он", "она", "они",
@@ -109,12 +104,9 @@ enum PersonExtractor {
             return exact
         }
 
-        return known.first { knownName in
-            let normalizedKnown = normalize(knownName)
-            let prefixLength = min(matchPrefixLength, min(normalizedKnown.count, normalizedCandidate.count))
-            guard prefixLength >= matchPrefixLength else { return false }
-            return normalizedKnown.prefix(prefixLength) == normalizedCandidate.prefix(prefixLength)
-        }
+        // Дальше работает то же правило падежей, что и в модели Person:
+        // логика сопоставления обязана быть одна на всё приложение.
+        return known.first { Person.isSameName(candidate, $0) }
     }
 
     private static func normalize(_ value: String) -> String {
