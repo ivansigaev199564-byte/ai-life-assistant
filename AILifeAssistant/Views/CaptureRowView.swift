@@ -17,6 +17,47 @@ struct CaptureRowView: View {
                 footer
             }
         }
+        // Без объединения VoiceOver читает строку по кускам: пустая точка
+        // статуса, текст, каждая плашка отдельно, каждая метка отдельно.
+        // Слушать это на каждой записи в ленте невозможно.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription)
+        .accessibilityHint("Дважды коснитесь, чтобы открыть запись")
+    }
+
+    /// Что услышит человек, ведущий пальцем по ленте.
+    ///
+    /// Порядок тот же, что и глазами: сначала сказанное, потом что из этого
+    /// вышло, и только потом служебное.
+    private var accessibilityDescription: String {
+        var parts = [capture.previewText]
+
+        if let expense = capture.expenses.first {
+            parts.append("расход " + expense.formattedAmount)
+        }
+        if let reminder = capture.reminders.first {
+            parts.append("напоминание на " + reminder.fireDate.formatted(date: .abbreviated, time: .shortened))
+        }
+        if !capture.tasks.isEmpty {
+            parts.append("задач: \(capture.tasks.count)")
+        }
+        if !capture.notes.isEmpty {
+            parts.append("заметок: \(capture.notes.count)")
+        }
+
+        switch capture.status {
+        case .pending: parts.append("ожидает разбора")
+        case .processing: parts.append("разбирается")
+        case .failed: parts.append("ошибка разбора")
+        case .synced: break
+        }
+
+        if capture.needsReview {
+            parts.append("требует проверки")
+        }
+
+        parts.append(capture.createdAt.formatted(date: .omitted, time: .shortened))
+        return parts.joined(separator: ", ")
     }
 
     // MARK: Сказанное
@@ -102,6 +143,10 @@ struct CaptureRowView: View {
         }
         .font(DS.Font.micro)
         .foregroundStyle(DS.Palette.textTertiary)
+        // Полоса метаданных при максимальном размере шрифта превращается
+        // в три строки мелочи и вытесняет сам текст записи, ради которого
+        // строка и существует.
+        .dynamicTypeSize(...DS.denseTypeLimit)
     }
 
     // MARK: Форматирование

@@ -14,6 +14,7 @@ struct VoiceOrb: View {
     /// Идёт ли запись. В паузе орб дышит медленно, без реакции на звук.
     let isActive: Bool
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var breathing = false
 
     private var normalizedLevel: CGFloat {
@@ -61,6 +62,10 @@ struct VoiceOrb: View {
         }
         .frame(width: 220, height: 220)
         .onAppear {
+            // Постоянное дыхание при включённом «Уменьшении движения»
+            // недопустимо: для части людей такая анимация вызывает
+            // головокружение и тошноту.
+            guard !reduceMotion else { return }
             withAnimation(DS.Motion.breathe) { breathing = true }
         }
         .accessibilityHidden(true)

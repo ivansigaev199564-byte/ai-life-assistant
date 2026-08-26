@@ -135,11 +135,16 @@ struct StatusBadge: View {
             }
         }
         .frame(width: 10, height: 10)
+        // Статус входит в общую подпись строки, отдельно эта точка
+        // для VoiceOver только шум.
+        .accessibilityHidden(true)
     }
 }
 
 /// Мягкая пульсация для индикатора работы.
 struct PulseEffect: ViewModifier {
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPulsing = false
 
     func body(content: Content) -> some View {
@@ -147,6 +152,9 @@ struct PulseEffect: ViewModifier {
             .scaleEffect(isPulsing ? 1.35 : 0.85)
             .opacity(isPulsing ? 0.5 : 1)
             .onAppear {
+                // При запрете анимаций индикатор остаётся статичным:
+                // состояние всё равно понятно по цвету и форме.
+                guard !reduceMotion else { return }
                 withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
                     isPulsing = true
                 }
@@ -188,15 +196,20 @@ struct PrimaryButtonStyle: ButtonStyle {
 }
 
 /// Круглая кнопка для панели инструментов.
+///
+/// Минимум сорок четыре пункта: это нижняя граница цели, в которую
+/// человек попадает пальцем, не глядя и на ходу. Меньше выглядит
+/// изящнее и промахивается чаще.
 struct CircleButtonStyle: ButtonStyle {
 
-    var size: CGFloat = 40
+    var size: CGFloat = 44
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: size * 0.42, weight: .semibold))
+            .font(.system(size: size * 0.4, weight: .semibold))
             .foregroundStyle(DS.Palette.textPrimary)
             .frame(width: size, height: size)
+            .contentShape(Circle())
             .background {
                 Circle().fill(DS.Palette.surfaceElevated)
             }

@@ -84,6 +84,10 @@ struct RecordingOverlay: View {
         }
         .animation(DS.Motion.phase, value: coordinator.phase)
         .animation(DS.Motion.phase, value: coordinator.hasDetectedSpeech)
+        // Смена состояния проговаривается вслух: незрячий пользователь
+        // не видит орба и должен как-то узнать, что микрофон услышал речь.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.updatesFrequently)
     }
 
     private var title: String {
@@ -128,6 +132,7 @@ struct RecordingOverlay: View {
                     .lineSpacing(4)
                     .frame(maxWidth: .infinity)
                     .transition(.opacity)
+                    .accessibilityLabel("Распознано: " + coordinator.liveTranscript)
             }
             .frame(height: 96)
             .animation(DS.Motion.enter, value: coordinator.liveTranscript)

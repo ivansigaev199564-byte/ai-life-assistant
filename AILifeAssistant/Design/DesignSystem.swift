@@ -35,7 +35,10 @@ enum DS {
 
         static let textPrimary = DS.adaptive(light: 0x0E1116, dark: 0xF2F4F8)
         static let textSecondary = DS.adaptive(light: 0x5C6270, dark: 0x9AA1B2)
-        static let textTertiary = DS.adaptive(light: 0x8B909D, dark: 0x646B7C)
+        /// Третичный текст. Значения подобраны так, чтобы проходить
+        /// порог контраста 4.5:1 на своём фоне: прежние выглядели
+        /// приятнее, но читались только на хорошем экране при хорошем свете.
+        static let textTertiary = DS.adaptive(light: 0x707584, dark: 0x7A8193)
 
         /// Основной акцент. Электрический синий читается и на светлом,
         /// и на тёмном, и не сливается с семантическими цветами сущностей.
@@ -44,18 +47,28 @@ enum DS {
         /// Второй акцент для градиента записи.
         static let accentSecondary = DS.adaptive(light: 0x7B3FFF, dark: 0x9B6BFF)
 
-        static let danger = DS.adaptive(light: 0xE03B3B, dark: 0xFF6B6B)
-        static let warning = DS.adaptive(light: 0xD98200, dark: 0xFFB13D)
-        static let success = DS.adaptive(light: 0x14915B, dark: 0x35D08A)
+        static let danger = DS.adaptive(light: 0xDE3232, dark: 0xFF6B6B)
+        static let warning = DS.adaptive(light: 0xAB6600, dark: 0xFFB13D)
+        static let success = DS.adaptive(light: 0x128352, dark: 0x35D08A)
+
+        /// Заливка кнопок. Отличается от accent намеренно: на светлом
+        /// акценте тёмной темы белый текст даёт всего 3.6:1, а на кнопке
+        /// текст обязан читаться при любом освещении.
+        static let accentFill = DS.adaptive(light: 0x2F5BFF, dark: 0x4167FF)
+        static let accentFillSecondary = DS.adaptive(light: 0x7B3FFF, dark: 0x864CFF)
     }
 
     /// Цвет по типу сущности. Один взгляд на список должен давать понимание,
     /// что там: трата, напоминание или мысль. Это работает быстрее текста.
+    ///
+    /// Светлые варианты заметно темнее очевидных: цвет здесь идёт текстом
+    /// на подложке того же оттенка, и на такой паре контраст падает вдвое
+    /// против цвета на белом.
     enum EntityColor {
-        static let expense = DS.adaptive(light: 0x14915B, dark: 0x35D08A)
-        static let reminder = DS.adaptive(light: 0xD98200, dark: 0xFFB13D)
-        static let task = DS.adaptive(light: 0x2F5BFF, dark: 0x5B7CFF)
-        static let note = DS.adaptive(light: 0x7C8496, dark: 0x8992A6)
+        static let expense = DS.adaptive(light: 0x107A4C, dark: 0x35D08A)
+        static let reminder = DS.adaptive(light: 0x965A00, dark: 0xFFB13D)
+        static let task = DS.adaptive(light: 0x2956FE, dark: 0x6584FF)
+        static let note = DS.adaptive(light: 0x636A7B, dark: 0x8992A6)
 
         static func forKind(_ kind: ParsedItemKind) -> Color {
             switch kind {
@@ -71,7 +84,7 @@ enum DS {
     /// где цвет позволяет себе быть ярким.
     static var recordingGradient: LinearGradient {
         LinearGradient(
-            colors: [Palette.accent, Palette.accentSecondary],
+            colors: [Palette.accentFill, Palette.accentFillSecondary],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -79,26 +92,39 @@ enum DS {
 
     // MARK: Типографика
 
-    /// Шкала на системном шрифте: он лучше всех справляется с русским
-    /// и английским сразу и корректно тянется под размер шрифта системы.
+    /// Шкала на системном шрифте.
+    ///
+    /// Каждый размер привязан к текстовому стилю, а не задан числом:
+    /// иначе приложение игнорирует системную настройку размера шрифта.
+    /// Для продукта, которым пользуются на ходу и часто в возрасте,
+    /// это не мелочь: человек увеличил шрифт во всей системе, а здесь
+    /// остался прежний мелкий.
     enum Font {
         /// Крупный заголовок экрана.
-        static let display = SwiftUI.Font.system(size: 32, weight: .bold, design: .rounded)
+        static let display = SwiftUI.Font.system(.largeTitle, design: .rounded, weight: .bold)
         /// Заголовок раздела.
-        static let title = SwiftUI.Font.system(size: 22, weight: .semibold, design: .rounded)
+        static let title = SwiftUI.Font.system(.title2, design: .rounded, weight: .semibold)
         /// Живая расшифровка речи: должна читаться с вытянутой руки.
-        static let transcript = SwiftUI.Font.system(size: 24, weight: .medium, design: .rounded)
+        static let transcript = SwiftUI.Font.system(.title2, design: .rounded, weight: .medium)
         /// Основной текст записи.
-        static let body = SwiftUI.Font.system(size: 16, weight: .regular)
+        static let body = SwiftUI.Font.system(.callout)
         /// Заголовок карточки сущности.
-        static let entityTitle = SwiftUI.Font.system(size: 15, weight: .semibold)
+        static let entityTitle = SwiftUI.Font.system(.subheadline, weight: .semibold)
         /// Подпись, метаданные.
-        static let caption = SwiftUI.Font.system(size: 13, weight: .medium)
+        static let caption = SwiftUI.Font.system(.footnote, weight: .medium)
         /// Мелкая служебная подпись.
-        static let micro = SwiftUI.Font.system(size: 11, weight: .semibold)
+        static let micro = SwiftUI.Font.system(.caption2, weight: .semibold)
         /// Денежная сумма: моноширинные цифры, чтобы колонка не прыгала.
-        static let amount = SwiftUI.Font.system(size: 15, weight: .semibold).monospacedDigit()
+        static let amount = SwiftUI.Font.system(.subheadline, weight: .semibold).monospacedDigit()
     }
+
+    /// Предел увеличения шрифта для плотных мест.
+    ///
+    /// Полностью запрещать крупный шрифт нельзя, это и есть та самая
+    /// недоступность. Но плашки сущностей и полосы метаданных при
+    /// максимальном размере превращаются в кашу, поэтому им ставится
+    /// потолок, а основному тексту нет.
+    static let denseTypeLimit: DynamicTypeSize = .accessibility1
 
     // MARK: Метрика
 
