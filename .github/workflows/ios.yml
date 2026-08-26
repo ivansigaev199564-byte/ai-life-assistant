@@ -87,13 +87,17 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             -resultBundlePath TestResults.xcresult
 
+      # Логи тестов весят по полсотни мегабайт и на бесплатном плане
+      # быстро съедают всю квоту хранилища, после чего GitHub перестаёт
+      # запускать прогоны вовсе. Поэтому они сохраняются только при
+      # падении, когда действительно нужны, и живут три дня.
       - name: Upload test results
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
           path: TestResults.xcresult
-          retention-days: 7
+          retention-days: 3
 
       # Сборка для симулятора, которую можно запустить в облачном симуляторе
       # (например, Appetize) и потыкать интерфейс без Mac и без устройства.
@@ -125,4 +129,4 @@ jobs:
         with:
           name: simulator-app
           path: AILifeAssistant-simulator.zip
-          retention-days: 14
+          retention-days: 7
