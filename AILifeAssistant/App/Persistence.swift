@@ -20,28 +20,36 @@ enum Persistence {
     /// расширения писали в ту же базу, что и приложение.
     static let appGroupIdentifier = "group.com.ivans.ailifeassistant"
 
-    /// Создаёт контейнер. Сначала пробует общий контейнер группы,
-    /// при неудаче откатывается на локальный: без App Group приложение
-    /// обязано работать, просто расширения не увидят данные.
+    /// Доступна ли группа приложений в этой сборке.
+    ///
+    /// Проверять обязательно до создания контейнера: при отсутствии права
+    /// на группу SwiftData вызывает fatalError внутри себя, и перехватить
+    /// его через do/catch нельзя. Так падает сборка без подписи (в том числе
+    /// в CI) и устройство, на котором группа не заведена в профиле.
+    static var isAppGroupAvailable: Bool {
+        FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupIdentifier
+        ) != nil
+    }
+
+    /// Создаёт контейнер. Общий контейнер группы используется, только если
+    /// он реально доступен: без App Group приложение обязано работать,
+    /// просто расширения не увидят данные.
     static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {
         if inMemory {
             let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
             return try ModelContainer(for: schema, configurations: configuration)
         }
 
-        do {
+        if isAppGroupAvailable {
             let configuration = ModelConfiguration(
                 groupContainer: .identifier(appGroupIdentifier)
             )
             return try ModelContainer(for: schema, configurations: configuration)
-        } catch {
-            Log.data.notice("""
-                Общий контейнер группы недоступен (\(error.localizedDescription)), \
-                используется локальное хранилище
-                """)
-            let fallback = ModelConfiguration()
-            return try ModelContainer(for: schema, configurations: fallback)
         }
+
+        Log.data.notice("Группа приложений недоступна, используется локальное хранилище")
+        return try ModelContainer(for: schema, configurations: ModelConfiguration())
     }
 
     /// Контейнер для тестов и превью: живёт в памяти и не трогает диск.

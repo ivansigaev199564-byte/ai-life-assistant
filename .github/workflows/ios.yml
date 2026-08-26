@@ -94,3 +94,31 @@ jobs:
           name: test-results
           path: TestResults.xcresult
           retention-days: 7
+
+      # Сборка для симулятора, которую можно запустить в облачном симуляторе
+      # (например, Appetize) и потыкать интерфейс без Mac и без устройства.
+      - name: Package simulator build
+        run: |
+          set -o pipefail
+          xcodebuild build             -project AILifeAssistant.xcodeproj             -scheme AILifeAssistant             -configuration Debug             -sdk iphonesimulator             -derivedDataPath build/DerivedData             CODE_SIGNING_ALLOWED=NO
+
+          PRODUCTS_DIR="build/DerivedData/Build/Products/Debug-iphonesimulator"
+          APP_PATH=$(find "$PRODUCTS_DIR" -maxdepth 1 -name "*.app" | head -1)
+
+          if [ -z "$APP_PATH" ]; then
+            echo "Не найден собранный .app в $PRODUCTS_DIR"
+            exit 1
+          fi
+
+          echo "Собрано: $APP_PATH"
+          # Архивируем из каталога продуктов, чтобы в zip лежал сам бандл,
+          # а не цепочка вложенных папок: облачные симуляторы этого ждут.
+          (cd "$PRODUCTS_DIR" && zip -r -y "$GITHUB_WORKSPACE/AILifeAssistant-simulator.zip" "$(basename "$APP_PATH")")
+          ls -lh AILifeAssistant-simulator.zip
+
+      - name: Upload simulator build
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-app
+          path: AILifeAssistant-simulator.zip
+          retention-days: 14
