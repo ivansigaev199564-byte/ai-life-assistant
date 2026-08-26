@@ -42,7 +42,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ivans.ailifeassistant
-        PRODUCT_NAME: AI Assistant
+        # PRODUCT_NAME не переопределяем: он задаёт имя бандла, на которое
+        # ссылается TEST_HOST тестового таргета. Имя на домашнем экране
+        # задаётся ключом CFBundleDisplayName ниже.
         PRODUCT_MODULE_NAME: AILifeAssistant
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited)"
     entitlements:
