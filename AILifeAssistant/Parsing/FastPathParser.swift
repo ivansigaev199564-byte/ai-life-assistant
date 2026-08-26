@@ -292,11 +292,15 @@ struct FastPathParser: IntentParsing {
     static func cleanTitle(_ text: String, removing markers: [String] = []) -> String {
         var result = text
 
-        for marker in markers where !marker.isEmpty {
-            // Ищем без учёта регистра, но вырезаем из исходной строки,
-            // чтобы не терять оригинальное написание остального текста.
-            while let range = result.range(of: marker, options: [.caseInsensitive, .diacriticInsensitive]) {
+        for marker in markers where marker.count >= 3 {
+            // Только регистронезависимый поиск, без снятия диакритики.
+            // С .diacriticInsensitive поиск на строках с «ё» возвращает
+            // диапазон, границы которого не совпадают с символами строки,
+            // и удаление по нему роняет приложение.
+            var iterations = 0
+            while iterations < 10, let range = result.range(of: marker, options: [.caseInsensitive]) {
                 result.removeSubrange(range)
+                iterations += 1
             }
         }
 

@@ -97,6 +97,22 @@ final class FastPathParserTests: XCTestCase {
         XCTAssertFalse(item.details.isEmpty)
     }
 
+    /// Буква «ё» в сочетании с удалением служебных слов из заголовка
+    /// роняла приложение: поиск со снятием диакритики возвращал диапазон,
+    /// не совпадающий с границами символов строки.
+    func testHandlesYoLetterInTitleCleanup() async throws {
+        let phrases = [
+            "нужно отправить отчёт",
+            "напомни завтра забрать посылку на почтё",
+            "потратил 500 на счёт в ресторане"
+        ]
+
+        for phrase in phrases {
+            let intent = try await parser.parse(text: phrase, context: context)
+            XCTAssertFalse(intent.items.isEmpty, "Фраза «\(phrase)» должна разобраться")
+        }
+    }
+
     func testDetectsHighPriority() async throws {
         let intent = try await parser.parse(text: "срочно нужно отправить отчёт", context: context)
         let item = try XCTUnwrap(intent.items.first)
