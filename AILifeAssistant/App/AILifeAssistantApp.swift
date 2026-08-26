@@ -17,6 +17,9 @@ struct AILifeAssistantApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                // Единый акцент на всё приложение: системные элементы
+                // управления должны совпадать по цвету с собственными.
+                .tint(DS.Palette.accent)
                 .environment(environment.coordinator)
                 .environment(environment.settings)
                 .environment(environment.permissions)

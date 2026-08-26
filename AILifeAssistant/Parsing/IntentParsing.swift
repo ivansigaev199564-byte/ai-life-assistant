@@ -76,7 +76,7 @@ struct ParsingContext: Sendable {
     func isRussian(_ text: String) -> Bool {
         if let languageCode, languageCode.hasPrefix("ru") { return true }
         if let languageCode, languageCode.hasPrefix("en") { return false }
-        return text.range(of: "\p{Cyrillic}", options: .regularExpression) != nil
+        return text.range(of: #"\p{Cyrillic}"#, options: .regularExpression) != nil
     }
 }
 

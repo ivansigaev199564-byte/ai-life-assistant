@@ -286,7 +286,7 @@ struct FastPathParser: IntentParsing {
         }
 
         result = result
-            .replacingOccurrences(of: "\s{2,}", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:-—"))
 
         // Первая буква заглавная: так заголовок читается как заголовок.

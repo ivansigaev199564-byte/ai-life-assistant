@@ -1,7 +1,11 @@
 import SwiftData
 import SwiftUI
 
-/// Настройки: движок распознавания, язык, поведение записи и диагностика.
+/// Настройки: распознавание, поведение записи, диагностика устройства.
+///
+/// Раздел «Устройство» стоит здесь не для красоты: он честно отвечает
+/// на вопрос, почему у одного пользователя разбор идёт на устройстве,
+/// а у другого нет.
 struct SettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
@@ -17,142 +21,268 @@ struct SettingsView: View {
         @Bindable var settings = settings
 
         NavigationStack {
-            Form {
-                permissionsSection
-
-                Section("Распознавание") {
-                    Picker("Движок", selection: $settings.enginePreference) {
-                        ForEach(SpeechEnginePreference.allCases, id: \.self) { preference in
-                            Text(preference.displayName).tag(preference)
-                        }
-                    }
-
-                    Text(settings.enginePreference.explanation)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                    if settings.enginePreference == .whisperKit {
-                        whisperStatusRow
-                    }
-
-                    Picker("Язык", selection: localeBinding) {
-                        Text("Как в системе").tag(String?.none)
-                        ForEach(SpeechEngineFactory.availableLocales, id: \.identifier) { locale in
-                            Text(displayName(for: locale)).tag(String?.some(locale.identifier))
-                        }
-                    }
-                    .disabled(settings.enginePreference == .whisperKit)
-
-                    if settings.enginePreference == .whisperKit {
-                        Text("WhisperKit определяет язык сам, выбор не требуется.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.Spacing.md) {
+                    permissionsSection
+                    recognitionSection(settings: settings)
+                    captureSection(settings: settings)
+                    deviceSection
+                    dataSection
                 }
-
-                Section("Запись") {
-                    Toggle("Режим длинной надиктовки", isOn: $settings.isDictationMode)
-                    Text(settings.isDictationMode
-                         ? "Пауза до остановки: 2,5 секунды, лимит 5 минут."
-                         : "Пауза до остановки: 1,4 секунды, лимит 60 секунд.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                    Toggle("Хранить аудио", isOn: $settings.keepAudioRecordings)
-                    Text("Записи удаляются автоматически через \(RecordingStore.retentionDays) дней. Занято: \(formattedSize).")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                    Toggle("Тактильный отклик", isOn: $settings.hapticsEnabled)
-                }
-
-                Section("Устройство") {
-                    LabeledContent("Кнопка действия", value: capabilities.device.hasActionButton ? "есть" : "нет")
-                    LabeledContent("Динамический остров", value: capabilities.device.hasDynamicIsland ? "есть" : "нет")
-                    LabeledContent("Разбор на устройстве", value: parsingDescription)
-                    LabeledContent("Модель", value: capabilities.device.modelIdentifier)
-                }
-
-                Section {
-                    Button("Удалить все аудиозаписи", role: .destructive) {
-                        RecordingStore().deleteAll()
-                        refreshSize()
-                    }
-                }
+                .padding(DS.Spacing.md)
+                .padding(.bottom, DS.Spacing.lg)
             }
+            .background(DS.Palette.background)
             .navigationTitle("Настройки")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Готово") { dismiss() }
+                        .fontWeight(.semibold)
                 }
             }
             .task { refreshSize() }
         }
     }
 
-    // MARK: Секции
+    // MARK: Разрешения
 
     private var permissionsSection: some View {
-        Section("Разрешения") {
-            LabeledContent("Микрофон", value: statusText(permissions.microphone))
-            LabeledContent("Распознавание речи", value: statusText(permissions.speechRecognition))
+        section("Разрешения") {
+            permissionRow("Микрофон", permissions.microphone)
+            permissionRow("Распознавание речи", permissions.speechRecognition)
 
             if permissions.requiresSystemSettings {
                 Button("Открыть системные настройки") {
                     permissions.openSystemSettings()
                 }
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Palette.accent)
             } else if !permissions.isReadyForCapture {
                 Button("Запросить разрешения") {
                     Task { await permissions.requestAll() }
                 }
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Palette.accent)
+            }
+        }
+    }
+
+    private func permissionRow(_ title: String, _ status: PermissionsManager.Status) -> some View {
+        HStack {
+            Text(title)
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Palette.textSecondary)
+            Spacer()
+            HStack(spacing: DS.Spacing.xxs) {
+                Circle()
+                    .fill(status == .granted ? DS.Palette.success : DS.Palette.danger)
+                    .frame(width: 6, height: 6)
+                Text(statusText(status))
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Palette.textPrimary)
+            }
+        }
+    }
+
+    // MARK: Распознавание
+
+    private func recognitionSection(settings: AppSettings) -> some View {
+        section("Распознавание") {
+            // Сегменты вместо выпадающего списка: вариантов три,
+            // и все должны быть видны сразу.
+            Picker("Движок", selection: Binding(
+                get: { settings.enginePreference },
+                set: { settings.enginePreference = $0 }
+            )) {
+                ForEach(SpeechEnginePreference.allCases, id: \.self) { preference in
+                    Text(preference.displayName).tag(preference)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Text(settings.enginePreference.explanation)
+                .font(DS.Font.micro)
+                .foregroundStyle(DS.Palette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if settings.enginePreference == .whisperKit {
+                whisperStatus
+            } else {
+                Picker("Язык", selection: Binding(
+                    get: { settings.localeIdentifier },
+                    set: { settings.localeIdentifier = $0 }
+                )) {
+                    Text("Как в системе").tag(String?.none)
+                    ForEach(SpeechEngineFactory.availableLocales, id: \.identifier) { locale in
+                        Text(displayName(for: locale)).tag(String?.some(locale.identifier))
+                    }
+                }
+                .font(DS.Font.caption)
+                .tint(DS.Palette.accent)
             }
         }
     }
 
     @ViewBuilder
-    private var whisperStatusRow: some View {
+    private var whisperStatus: some View {
         if isPreparingWhisper {
-            HStack {
+            HStack(spacing: DS.Spacing.xs) {
                 ProgressView().controlSize(.small)
                 Text("Загружаю модель")
-                    .foregroundStyle(.secondary)
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Palette.textSecondary)
             }
         } else if WhisperKitRecognizer.isModelReady {
             Label("Модель загружена", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green)
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Palette.success)
         } else {
-            VStack(alignment: .leading, spacing: 6) {
-                Button("Загрузить модель") {
-                    downloadWhisperModel()
-                }
+            VStack(alignment: .leading, spacing: DS.Spacing.xxs) {
+                Button("Загрузить модель") { downloadWhisperModel() }
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Palette.accent)
+
                 if let whisperError {
                     Text(whisperError)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
+                        .font(DS.Font.micro)
+                        .foregroundStyle(DS.Palette.danger)
                 }
+
                 Text("Модель весит несколько сотен мегабайт, качайте по Wi-Fi.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(DS.Font.micro)
+                    .foregroundStyle(DS.Palette.textTertiary)
+            }
+        }
+    }
+
+    // MARK: Запись
+
+    private func captureSection(settings: AppSettings) -> some View {
+        section("Запись") {
+            toggleRow(
+                "Режим длинной надиктовки",
+                hint: settings.isDictationMode
+                    ? "Пауза до остановки 2,5 секунды, лимит 5 минут"
+                    : "Пауза до остановки 1,4 секунды, лимит 60 секунд",
+                isOn: Binding(
+                    get: { settings.isDictationMode },
+                    set: { settings.isDictationMode = $0 }
+                )
+            )
+
+            toggleRow(
+                "Хранить аудио",
+                hint: "Записи удаляются через \(RecordingStore.retentionDays) дней. Занято: \(formattedSize)",
+                isOn: Binding(
+                    get: { settings.keepAudioRecordings },
+                    set: { settings.keepAudioRecordings = $0 }
+                )
+            )
+
+            toggleRow(
+                "Тактильный отклик",
+                hint: nil,
+                isOn: Binding(
+                    get: { settings.hapticsEnabled },
+                    set: { settings.hapticsEnabled = $0 }
+                )
+            )
+        }
+    }
+
+    private func toggleRow(_ title: String, hint: String?, isOn: Binding<Bool>) -> some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.xxs) {
+            Toggle(isOn: isOn) {
+                Text(title)
+                    .font(DS.Font.entityTitle)
+                    .foregroundStyle(DS.Palette.textPrimary)
+            }
+            .tint(DS.Palette.accent)
+
+            if let hint {
+                Text(hint)
+                    .font(DS.Font.micro)
+                    .foregroundStyle(DS.Palette.textTertiary)
+            }
+        }
+    }
+
+    // MARK: Устройство
+
+    private var deviceSection: some View {
+        section("Устройство") {
+            capabilityRow("Кнопка действия", capabilities.device.hasActionButton)
+            capabilityRow("Динамический остров", capabilities.device.hasDynamicIsland)
+            capabilityRow("Разбор на устройстве", capabilities.hasFoundationModels)
+
+            HStack {
+                Text("Модель")
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Palette.textSecondary)
+                Spacer()
+                Text(capabilities.device.modelIdentifier)
+                    .font(DS.Font.micro)
+                    .foregroundStyle(DS.Palette.textTertiary)
+            }
+
+            if !capabilities.hasFoundationModels {
+                Text("Локальная модель доступна на iPhone 15 Pro и новее с iOS 26. Без неё разбор идёт по правилам.")
+                    .font(DS.Font.micro)
+                    .foregroundStyle(DS.Palette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func capabilityRow(_ title: String, _ available: Bool) -> some View {
+        HStack {
+            Text(title)
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Palette.textSecondary)
+            Spacer()
+            Image(systemName: available ? "checkmark.circle.fill" : "minus.circle")
+                .font(.system(size: 14))
+                .foregroundStyle(available ? DS.Palette.success : DS.Palette.textTertiary)
+        }
+    }
+
+    // MARK: Данные
+
+    private var dataSection: some View {
+        section("Данные") {
+            Text("Записи и разбор хранятся только на устройстве.")
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Palette.textSecondary)
+
+            Button(role: .destructive) {
+                RecordingStore().deleteAll()
+                refreshSize()
+            } label: {
+                Label("Удалить все аудиозаписи", systemImage: "trash")
+                    .font(DS.Font.caption)
+            }
+            .foregroundStyle(DS.Palette.danger)
+        }
+    }
+
+    // MARK: Каркас секции
+
+    private func section<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+            SectionLabel(text: title)
+            SurfaceCard {
+                VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                    content()
+                }
             }
         }
     }
 
     // MARK: Вспомогательное
-
-    private var localeBinding: Binding<String?> {
-        Binding(
-            get: { settings.localeIdentifier },
-            set: { settings.localeIdentifier = $0 }
-        )
-    }
-
-    private var parsingDescription: String {
-        switch capabilities.onDeviceParsing {
-        case .foundationModels: return "Foundation Models"
-        case .heuristics: return "правила и NaturalLanguage"
-        }
-    }
 
     private var formattedSize: String {
         ByteCountFormatter.string(fromByteCount: recordingsSize, countStyle: .file)

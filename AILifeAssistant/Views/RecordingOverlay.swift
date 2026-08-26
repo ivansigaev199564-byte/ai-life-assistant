@@ -1,57 +1,96 @@
 import SwiftUI
 
-/// Экран записи: уровень сигнала, живая расшифровка, кнопки остановки и отмены.
+/// Экран записи: единственный момент, когда пользователь смотрит
+/// на приложение осознанно.
 ///
-/// Показывается поверх инбокса, пока идёт захват. Всё, что нужно пользователю
-/// в этот момент, помещается на один экран без прокрутки.
+/// Всё подчинено одному вопросу, который у него в голове: «меня слышно?».
+/// Ответ даёт орб, который реагирует на голос, и текст, который появляется
+/// по мере речи. Управление отодвинуто вниз и намеренно не притягивает
+/// внимание: чаще всего запись остановится сама по тишине.
 struct RecordingOverlay: View {
 
     @Environment(CaptureCoordinator.self) private var coordinator
 
+    @State private var appeared = false
+
     var body: some View {
+        ZStack {
+            background
+
+            VStack(spacing: 0) {
+                Spacer(minLength: DS.Spacing.xl)
+
+                status
+                    .padding(.bottom, DS.Spacing.xl)
+
+                VoiceOrb(level: coordinator.audioLevel, isActive: coordinator.phase == .listening)
+                    .scaleEffect(appeared ? 1 : 0.86)
+                    .opacity(appeared ? 1 : 0)
+
+                transcript
+                    .padding(.top, DS.Spacing.lg)
+                    .padding(.horizontal, DS.Spacing.lg)
+
+                Spacer(minLength: DS.Spacing.lg)
+
+                controls
+                    .padding(.horizontal, DS.Spacing.lg)
+                    .padding(.bottom, DS.Spacing.xl)
+                    .opacity(appeared ? 1 : 0)
+                    .offset(y: appeared ? 0 : 16)
+            }
+        }
+        .onAppear {
+            withAnimation(DS.Motion.phase) { appeared = true }
+        }
+    }
+
+    // MARK: Фон
+
+    /// Тёмная подложка с еле заметным свечением сверху: оно поднимает
+    /// орб над фоном и задаёт вертикаль экрана.
+    private var background: some View {
         ZStack {
             Rectangle()
                 .fill(.ultraThinMaterial)
                 .ignoresSafeArea()
 
-            VStack(spacing: 28) {
-                Spacer()
-
-                statusText
-
-                waveform
-
-                transcript
-
-                Spacer()
-
-                controls
-            }
-            .padding(.horizontal, 28)
-            .padding(.bottom, 40)
+            RadialGradient(
+                colors: [DS.Palette.accent.opacity(0.18), .clear],
+                center: .init(x: 0.5, y: 0.32),
+                startRadius: 10,
+                endRadius: 340
+            )
+            .ignoresSafeArea()
+            .opacity(coordinator.phase == .listening ? 1 : 0.4)
+            .animation(DS.Motion.phase, value: coordinator.phase)
         }
-        .contentShape(Rectangle())
     }
 
-    // MARK: Части экрана
+    // MARK: Состояние
 
-    private var statusText: some View {
-        VStack(spacing: 6) {
+    private var status: some View {
+        VStack(spacing: DS.Spacing.xxs) {
             Text(title)
-                .font(.title3.weight(.semibold))
+                .font(DS.Font.title)
+                .foregroundStyle(DS.Palette.textPrimary)
+                .contentTransition(.opacity)
 
             Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Palette.textSecondary)
                 .multilineTextAlignment(.center)
+                .frame(maxWidth: 280)
         }
+        .animation(DS.Motion.phase, value: coordinator.phase)
+        .animation(DS.Motion.phase, value: coordinator.hasDetectedSpeech)
     }
 
     private var title: String {
         switch coordinator.phase {
-        case .preparing: return "Готовлю микрофон"
+        case .preparing: return "Включаю микрофон"
         case .listening: return coordinator.hasDetectedSpeech ? "Слушаю" : "Говорите"
-        case .finalizing: return "Обрабатываю"
+        case .finalizing: return "Записываю"
         case .failed: return "Не получилось"
         case .idle: return ""
         }
@@ -61,10 +100,10 @@ struct RecordingOverlay: View {
         switch coordinator.phase {
         case .listening:
             return coordinator.hasDetectedSpeech
-                ? "Пауза в полторы секунды остановит запись сама"
-                : "Микрофон включён, начните говорить"
+                ? "Замолчите на секунду, и запись закроется сама"
+                : "Микрофон включён"
         case .finalizing:
-            return "Сохраняю запись"
+            return "Сохраняю и разбираю"
         case .failed(let error):
             return error.errorDescription ?? ""
         default:
@@ -72,69 +111,46 @@ struct RecordingOverlay: View {
         }
     }
 
-    /// Индикатор уровня: восемь полос, реагирующих на громкость.
-    private var waveform: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<8, id: \.self) { index in
-                Capsule()
-                    .fill(.tint)
-                    .frame(width: 8, height: barHeight(for: index))
-                    .animation(.easeOut(duration: 0.12), value: coordinator.audioLevel)
-            }
-        }
-        .frame(height: 90)
-        .accessibilityHidden(true)
-    }
+    // MARK: Расшифровка
 
-    /// Полосы по краям ниже центральных: так индикатор читается как волна,
-    /// а не как ровный столбик.
-    private func barHeight(for index: Int) -> CGFloat {
-        let distanceFromCenter = abs(Double(index) - 3.5) / 3.5
-        let shape = 1.0 - distanceFromCenter * 0.55
-        let level = Double(min(1, max(0, coordinator.audioLevel)))
-        let minimum = 10.0
-        let maximum = 80.0
-        return minimum + (maximum - minimum) * level * shape
-    }
-
+    /// Живой текст растёт снизу вверх и не прыгает при обновлении:
+    /// фиксированная область высоты держит орб на месте.
     @ViewBuilder
     private var transcript: some View {
         if coordinator.liveTranscript.isEmpty {
-            Text(" ")
-                .font(.title3)
-                .frame(maxWidth: .infinity, minHeight: 80)
+            Color.clear.frame(height: 96)
         } else {
-            ScrollView {
+            ScrollView(.vertical, showsIndicators: false) {
                 Text(coordinator.liveTranscript)
-                    .font(.title3)
+                    .font(DS.Font.transcript)
+                    .foregroundStyle(DS.Palette.textPrimary)
                     .multilineTextAlignment(.center)
+                    .lineSpacing(4)
                     .frame(maxWidth: .infinity)
+                    .transition(.opacity)
             }
-            .frame(maxHeight: 160)
+            .frame(height: 96)
+            .animation(DS.Motion.enter, value: coordinator.liveTranscript)
         }
     }
 
+    // MARK: Управление
+
     private var controls: some View {
-        HStack(spacing: 16) {
-            Button(role: .cancel) {
+        HStack(spacing: DS.Spacing.sm) {
+            Button {
                 Task { await coordinator.cancel() }
             } label: {
                 Label("Отменить", systemImage: "xmark")
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
+            .buttonStyle(PrimaryButtonStyle(isProminent: false))
 
             Button {
                 Task { await coordinator.stop(reason: .manual) }
             } label: {
                 Label("Готово", systemImage: "checkmark")
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
             }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
+            .buttonStyle(PrimaryButtonStyle())
             .disabled(coordinator.phase == .finalizing)
         }
     }
@@ -144,4 +160,5 @@ struct RecordingOverlay: View {
     let preview = AppEnvironment.makeForTesting()
     return RecordingOverlay()
         .environment(preview.coordinator)
+        .background(DS.Palette.background)
 }

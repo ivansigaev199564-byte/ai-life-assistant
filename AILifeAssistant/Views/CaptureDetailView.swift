@@ -1,15 +1,14 @@
 import SwiftData
 import SwiftUI
 
-/// Экран одного захвата: что было сказано, что из этого поняли
-/// и что в итоге создано.
+/// Экран записи: что было сказано, что из этого поняли, что создано.
 ///
-/// Нужен, когда разбор ошибся: пользователь видит исходный текст рядом
-/// с результатом и может отправить фразу на повторный разбор.
+/// Нужен ровно в двух случаях: разбор ошибся, или пользователь хочет
+/// увидеть подробности. Поэтому исходная фраза лежит сверху, а действия
+/// по исправлению не спрятаны в меню.
 struct CaptureDetailView: View {
 
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
 
     let capture: CaptureItem
     let processingQueue: ProcessingQueue
@@ -18,106 +17,223 @@ struct CaptureDetailView: View {
     @State private var draftText = ""
 
     var body: some View {
-        List {
-            Section("Сказано") {
-                Text(capture.text)
-                    .font(.body)
-                    .textSelection(.enabled)
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Spacing.md) {
+                spoken
+                parsing
 
-                Button("Исправить текст") {
-                    draftText = capture.text
-                    isEditingText = true
+                if capture.hasDerivedItems {
+                    created
                 }
-                .font(.subheadline)
+
+                recording
             }
-
-            Section("Разбор") {
-                LabeledContent("Статус", value: statusText)
-
-                if let engine = capture.parsingEngine {
-                    LabeledContent("Движок", value: engineName(engine))
-                }
-
-                if capture.parseConfidence > 0 {
-                    LabeledContent(
-                        "Уверенность",
-                        value: "\(Int(capture.parseConfidence * 100)) %"
-                    )
-                }
-
-                if let parsedAt = capture.parsedAt {
-                    LabeledContent(
-                        "Разобрано",
-                        value: parsedAt.formatted(date: .abbreviated, time: .shortened)
-                    )
-                }
-
-                if let failureReason = capture.failureReason {
-                    Text(failureReason)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
-
-                Button("Разобрать заново") {
-                    Task { await processingQueue.retry(capture) }
-                }
-            }
-
-            if capture.hasDerivedItems {
-                Section("Создано") {
-                    ParsedItemsSection(capture: capture)
-                }
-            } else if capture.status == .synced {
-                Section("Создано") {
-                    Text("Разбор не создал записей")
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if capture.needsReview {
-                Section {
-                    Label(
-                        "Смысл понят неуверенно, стоит проверить результат",
-                        systemImage: "exclamationmark.triangle"
-                    )
-                    .foregroundStyle(.orange)
-                    .font(.subheadline)
-                }
-            }
-
-            Section("Запись") {
-                LabeledContent("Источник", value: sourceText)
-                if capture.audioDuration > 0 {
-                    LabeledContent(
-                        "Длительность",
-                        value: String(format: "%.1f с", capture.audioDuration)
-                    )
-                }
-                if capture.recognitionConfidence > 0 {
-                    LabeledContent(
-                        "Распознавание",
-                        value: "\(Int(capture.recognitionConfidence * 100)) %"
-                    )
-                }
-                if let languageCode = capture.languageCode {
-                    LabeledContent("Язык", value: languageCode)
-                }
-            }
+            .padding(DS.Spacing.md)
+            .padding(.bottom, DS.Spacing.lg)
         }
+        .background(DS.Palette.background)
         .navigationTitle("Запись")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("Исправить текст", isPresented: $isEditingText) {
-            TextField("Текст записи", text: $draftText)
-            Button("Отмена", role: .cancel) {}
-            Button("Разобрать заново") {
-                applyEditedText()
+        .sheet(isPresented: $isEditingText) { editSheet }
+    }
+
+    // MARK: Сказанное
+
+    private var spoken: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+            SectionLabel(text: "Сказано")
+
+            SurfaceCard {
+                VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                    Text(capture.text)
+                        .font(DS.Font.body)
+                        .foregroundStyle(DS.Palette.textPrimary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Button {
+                        draftText = capture.text
+                        isEditingText = true
+                    } label: {
+                        Label("Исправить текст", systemImage: "pencil")
+                            .font(DS.Font.caption)
+                    }
+                    .foregroundStyle(DS.Palette.accent)
+                }
             }
-        } message: {
-            Text("После исправления запись будет разобрана заново.")
         }
     }
 
-    // MARK: Действия
+    // MARK: Разбор
+
+    private var parsing: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+            SectionLabel(text: "Разбор")
+
+            SurfaceCard(isHighlighted: capture.needsReview) {
+                VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                    if capture.needsReview {
+                        Label(
+                            "Смысл понят неуверенно, стоит проверить результат",
+                            systemImage: "exclamationmark.triangle.fill"
+                        )
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.Palette.warning)
+                    }
+
+                    detailRow("Статус", statusText)
+
+                    if let engine = capture.parsingEngine {
+                        detailRow("Движок", engineName(engine))
+                    }
+
+                    if capture.parseConfidence > 0 {
+                        confidenceRow
+                    }
+
+                    if let failureReason = capture.failureReason {
+                        Text(failureReason)
+                            .font(DS.Font.caption)
+                            .foregroundStyle(DS.Palette.danger)
+                    }
+
+                    Button {
+                        Task { await processingQueue.retry(capture) }
+                    } label: {
+                        Label("Разобрать заново", systemImage: "arrow.clockwise")
+                            .font(DS.Font.caption)
+                    }
+                    .foregroundStyle(DS.Palette.accent)
+                }
+            }
+        }
+    }
+
+    /// Уверенность показана полосой: голое число ничего не говорит,
+    /// а полоса сразу читается как «нормально» или «слабо».
+    private var confidenceRow: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.xxs) {
+            HStack {
+                Text("Уверенность")
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Palette.textSecondary)
+                Spacer()
+                Text("\(Int(capture.parseConfidence * 100)) %")
+                    .font(DS.Font.amount)
+                    .foregroundStyle(confidenceColor)
+            }
+
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(DS.Palette.surfaceElevated)
+                    Capsule()
+                        .fill(confidenceColor)
+                        .frame(width: geometry.size.width * capture.parseConfidence)
+                }
+            }
+            .frame(height: 4)
+        }
+    }
+
+    private var confidenceColor: Color {
+        capture.parseConfidence >= EntityMaterializer.confidenceThreshold
+            ? DS.Palette.success
+            : DS.Palette.warning
+    }
+
+    // MARK: Созданное
+
+    private var created: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+            SectionLabel(text: "Создано")
+
+            SurfaceCard {
+                ParsedItemsSection(capture: capture)
+            }
+        }
+    }
+
+    // MARK: Запись
+
+    private var recording: some View {
+        VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+            SectionLabel(text: "Запись")
+
+            SurfaceCard {
+                VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                    detailRow("Источник", sourceText)
+
+                    if capture.audioDuration > 0 {
+                        detailRow("Длительность", String(format: "%.1f с", capture.audioDuration))
+                    }
+                    if capture.recognitionConfidence > 0 {
+                        detailRow("Распознавание", "\(Int(capture.recognitionConfidence * 100)) %")
+                    }
+                    if let languageCode = capture.languageCode {
+                        detailRow("Язык", languageCode)
+                    }
+                    detailRow(
+                        "Создано",
+                        capture.createdAt.formatted(date: .abbreviated, time: .shortened)
+                    )
+                }
+            }
+        }
+    }
+
+    private func detailRow(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title)
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Palette.textSecondary)
+            Spacer()
+            Text(value)
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Palette.textPrimary)
+        }
+    }
+
+    // MARK: Правка текста
+
+    private var editSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                TextEditor(text: $draftText)
+                    .font(DS.Font.body)
+                    .scrollContentBackground(.hidden)
+                    .padding(DS.Spacing.sm)
+                    .background {
+                        RoundedRectangle(cornerRadius: DS.Radius.md, style: .continuous)
+                            .fill(DS.Palette.surfaceElevated)
+                    }
+                    .frame(minHeight: 140)
+
+                Text("После исправления запись будет разобрана заново.")
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Palette.textSecondary)
+
+                Spacer()
+            }
+            .padding(DS.Spacing.md)
+            .background(DS.Palette.background)
+            .navigationTitle("Исправить текст")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Отмена") { isEditingText = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Разобрать") {
+                        applyEditedText()
+                        isEditingText = false
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
 
     /// Правка текста означает новый разбор: старый результат больше
     /// не соответствует сказанному.

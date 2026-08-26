@@ -1,81 +1,128 @@
 import SwiftData
 import SwiftUI
 
-/// Инбокс: все захваты по дням, свежие сверху.
+/// Лента записей, сгруппированная по дням.
+///
+/// Список собран на LazyVStack, а не на List: карточкам нужны собственные
+/// отступы, скругления и переносимые плашки, а системный список навязывает
+/// свою геометрию строк и разделители.
 struct TimelineView: View {
 
     @Environment(\.modelContext) private var modelContext
-    @Environment(CaptureCoordinator.self) private var coordinator
     @Environment(ProcessingQueue.self) private var processingQueue
 
-    /// Сортировка на уровне запроса: SwiftData отдаёт готовый порядок,
-    /// сортировать в представлении не нужно.
     @Query(sort: \CaptureItem.createdAt, order: .reverse)
     private var captures: [CaptureItem]
 
     @State private var searchText = ""
+    @State private var captureToDelete: CaptureItem?
 
     var body: some View {
         Group {
             if captures.isEmpty {
-                emptyState
+                EmptyStateView(
+                    symbol: "mic.badge.plus",
+                    title: "Пока пусто",
+                    message: "Нажмите «Говорить» и скажите что угодно. Запись появится здесь через мгновение."
+                )
+                .frame(maxHeight: .infinity, alignment: .center)
+            } else if filteredCaptures.isEmpty {
+                EmptyStateView(
+                    symbol: "magnifyingglass",
+                    title: "Ничего не найдено",
+                    message: "Попробуйте другое слово из записи."
+                )
+                .frame(maxHeight: .infinity, alignment: .center)
             } else {
-                list
+                content
             }
         }
         .searchable(text: $searchText, prompt: "Поиск по записям")
+        .confirmationDialog(
+            "Удалить запись?",
+            isPresented: Binding(
+                get: { captureToDelete != nil },
+                set: { isPresented in if !isPresented { captureToDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Удалить", role: .destructive) {
+                if let captureToDelete { delete(captureToDelete) }
+                captureToDelete = nil
+            }
+            Button("Отмена", role: .cancel) { captureToDelete = nil }
+        } message: {
+            Text("Вместе с записью удалятся созданные из неё заметки, задачи, напоминания и расходы.")
+        }
     }
 
-    // MARK: Список
+    // MARK: Содержимое
 
-    private var list: some View {
-        List {
-            ForEach(groupedCaptures, id: \.day) { group in
-                Section {
-                    ForEach(group.items) { capture in
-                        NavigationLink {
-                            CaptureDetailView(capture: capture, processingQueue: processingQueue)
-                        } label: {
-                            CaptureRowView(capture: capture)
-                        }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+    private var content: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: DS.Spacing.md, pinnedViews: .sectionHeaders) {
+                ForEach(groupedCaptures, id: \.day) { group in
+                    Section {
+                        ForEach(group.items) { capture in
+                            NavigationLink {
+                                CaptureDetailView(capture: capture, processingQueue: processingQueue)
+                            } label: {
+                                CaptureRowView(capture: capture)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                if capture.status == .failed || capture.parsedAt == nil {
+                                    Button {
+                                        Task { await processingQueue.retry(capture) }
+                                    } label: {
+                                        Label("Разобрать заново", systemImage: "arrow.clockwise")
+                                    }
+                                }
                                 Button(role: .destructive) {
-                                    delete(capture)
+                                    captureToDelete = capture
                                 } label: {
                                     Label("Удалить", systemImage: "trash")
                                 }
                             }
-                            .swipeActions(edge: .leading) {
-                                if capture.status == .failed {
-                                    Button {
-                                        retry(capture)
-                                    } label: {
-                                        Label("Повторить", systemImage: "arrow.clockwise")
-                                    }
-                                    .tint(.blue)
-                                }
-                            }
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+                    } header: {
+                        dayHeader(group)
                     }
-                } header: {
-                    Text(group.title)
                 }
-            }
 
-            // Пустое место под нижней панелью захвата, иначе кнопка
-            // перекрывает последнюю строку списка.
-            Color.clear
-                .frame(height: 90)
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
+                // Место под кнопкой записи, чтобы последняя карточка
+                // не пряталась за ней.
+                Color.clear.frame(height: 96)
+            }
+            .padding(.horizontal, DS.Spacing.md)
+            .padding(.top, DS.Spacing.xxs)
         }
-        .listStyle(.insetGrouped)
+        .scrollDismissesKeyboard(.immediately)
+        .animation(DS.Motion.enter, value: captures.count)
     }
 
-    private var emptyState: some View {
-        ContentUnavailableView {
-            Label("Пока пусто", systemImage: "tray")
-        } description: {
-            Text("Нажмите «Говорить» и скажите что угодно. Запись появится здесь через мгновение.")
+    /// Заголовок дня остаётся у верхней кромки при прокрутке: так всегда
+    /// понятно, какой день сейчас на экране.
+    private func dayHeader(_ group: DayGroup) -> some View {
+        HStack(spacing: DS.Spacing.xs) {
+            Text(group.title)
+                .font(DS.Font.micro)
+                .kerning(0.8)
+                .foregroundStyle(DS.Palette.textTertiary)
+
+            Text("\(group.items.count)")
+                .font(DS.Font.micro)
+                .foregroundStyle(DS.Palette.textTertiary.opacity(0.7))
+
+            Spacer()
+        }
+        .padding(.vertical, DS.Spacing.xxs)
+        .padding(.horizontal, DS.Spacing.xxs)
+        .background {
+            Rectangle()
+                .fill(DS.Palette.background)
+                .padding(.horizontal, -DS.Spacing.md)
         }
     }
 
@@ -110,13 +157,13 @@ struct TimelineView: View {
         let calendar = Calendar.current
         if calendar.isDateInToday(day) { return "Сегодня" }
         if calendar.isDateInYesterday(day) { return "Вчера" }
-        return day.formatted(.dateTime.day().month(.wide).year())
+        return day.formatted(.dateTime.day().month(.wide))
     }
 
     // MARK: Действия
 
     private func delete(_ capture: CaptureItem) {
-        // Аудиофайл живёт вне базы, поэтому удаляем его отдельно.
+        // Аудиофайл живёт вне базы, поэтому удаляется отдельно.
         if let fileName = capture.audioFileName {
             RecordingStore().delete(fileName: fileName)
         }
@@ -127,10 +174,6 @@ struct TimelineView: View {
             Log.data.error("Не удалось удалить захват: \(error.localizedDescription)")
         }
     }
-
-    private func retry(_ capture: CaptureItem) {
-        Task { await processingQueue.retry(capture) }
-    }
 }
 
 #Preview {
@@ -139,6 +182,7 @@ struct TimelineView: View {
         TimelineView()
             .environment(preview.coordinator)
             .environment(preview.processingQueue)
+            .background(DS.Palette.background)
     }
     .modelContainer(preview.container)
 }
