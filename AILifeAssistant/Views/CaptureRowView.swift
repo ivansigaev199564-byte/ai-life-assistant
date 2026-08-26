@@ -50,6 +50,11 @@ struct CaptureRowView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
 
+            if capture.hasDerivedItems {
+                ParsedItemsSection(capture: capture)
+                    .padding(.top, 2)
+            }
+
             if let failureReason = capture.failureReason {
                 Text(failureReason)
                     .font(.caption)

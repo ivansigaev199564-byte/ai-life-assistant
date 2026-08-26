@@ -46,6 +46,19 @@ final class CaptureItem {
     /// Сколько раз пытались обработать. Нужен для отсечки бесконечных повторов.
     var processingAttempts: Int
 
+    // MARK: Итог разбора
+
+    /// Когда захват был разобран в последний раз.
+    var parsedAt: Date?
+
+    /// Какой движок дал итоговый разбор.
+    private var parsingEngineRaw: String?
+
+    /// Уверенность разбора смысла, 0...1. Отличается от уверенности
+    /// распознавания речи: текст может быть распознан идеально,
+    /// а смысл остаться неоднозначным.
+    var parseConfidence: Double
+
     // MARK: Синхронизация
 
     private var syncStateRaw: String
@@ -94,6 +107,7 @@ final class CaptureItem {
         self.createdAt = createdAt
         self.updatedAt = createdAt
         self.processingAttempts = 0
+        self.parseConfidence = 0
         self.syncStateRaw = SyncState.pendingUpload.rawValue
     }
 
@@ -120,6 +134,16 @@ final class CaptureItem {
     var syncState: SyncState {
         get { SyncState(rawValue: syncStateRaw) ?? .pendingUpload }
         set { syncStateRaw = newValue.rawValue }
+    }
+
+    var parsingEngine: ParsingEngine? {
+        get { parsingEngineRaw.flatMap(ParsingEngine.init(rawValue:)) }
+        set { parsingEngineRaw = newValue?.rawValue }
+    }
+
+    /// Разбор дал неуверенный результат: запись стоит показать пользователю.
+    var needsReview: Bool {
+        parsedAt != nil && parseConfidence > 0 && parseConfidence < 0.7
     }
 
     // MARK: Производные значения

@@ -6,6 +6,7 @@ struct TimelineView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(CaptureCoordinator.self) private var coordinator
+    @Environment(ProcessingQueue.self) private var processingQueue
 
     /// Сортировка на уровне запроса: SwiftData отдаёт готовый порядок,
     /// сортировать в представлении не нужно.
@@ -32,7 +33,11 @@ struct TimelineView: View {
             ForEach(groupedCaptures, id: \.day) { group in
                 Section {
                     ForEach(group.items) { capture in
-                        CaptureRowView(capture: capture)
+                        NavigationLink {
+                            CaptureDetailView(capture: capture, processingQueue: processingQueue)
+                        } label: {
+                            CaptureRowView(capture: capture)
+                        }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
                                     delete(capture)
@@ -124,11 +129,7 @@ struct TimelineView: View {
     }
 
     private func retry(_ capture: CaptureItem) {
-        // На Этапе 2 здесь будет повторный запуск разбора.
-        // Пока просто возвращаем запись в очередь.
-        capture.status = .pending
-        capture.failureReason = nil
-        try? modelContext.save()
+        Task { await processingQueue.retry(capture) }
     }
 }
 
@@ -137,6 +138,7 @@ struct TimelineView: View {
     return NavigationStack {
         TimelineView()
             .environment(preview.coordinator)
+            .environment(preview.processingQueue)
     }
     .modelContainer(preview.container)
 }

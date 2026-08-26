@@ -160,5 +160,6 @@ struct RootView: View {
         .environment(preview.coordinator)
         .environment(preview.settings)
         .environment(preview.permissions)
+        .environment(preview.processingQueue)
         .modelContainer(preview.container)
 }

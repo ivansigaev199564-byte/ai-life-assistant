@@ -43,6 +43,11 @@ final class Reminder {
 
     var source: CaptureItem?
 
+    /// Идентификатор элемента разбора, породившего эту запись.
+    /// По нему уточняющий проход находит созданную сущность и обновляет её,
+    /// вместо того чтобы создать вторую такую же.
+    var parsedItemID: UUID?
+
     @Relationship(deleteRule: .nullify, inverse: \Person.reminders)
     var people: [Person] = []
 

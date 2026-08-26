@@ -20,6 +20,7 @@ struct AILifeAssistantApp: App {
                 .environment(environment.coordinator)
                 .environment(environment.settings)
                 .environment(environment.permissions)
+                .environment(environment.processingQueue)
                 .environment(\.capabilities, environment.capabilities)
         }
         .modelContainer(environment.container)

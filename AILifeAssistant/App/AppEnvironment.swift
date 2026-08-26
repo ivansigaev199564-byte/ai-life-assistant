@@ -17,6 +17,8 @@ final class AppEnvironment {
     let capabilities: Capabilities
     let recordingStore: RecordingStore
     let coordinator: CaptureCoordinator
+    let processingQueue: ProcessingQueue
+    let apiConfiguration: APIConfiguration
 
     private init() {
         let container: ModelContainer
@@ -40,6 +42,25 @@ final class AppEnvironment {
             recordingStore: recordingStore
         )
 
+        // Облако выключено до появления функции-посредника: ключ модели
+        // не должен лежать в приложении, поэтому пока работают только
+        // локальные движки разбора.
+        let apiConfiguration = APIConfiguration.default
+        self.apiConfiguration = apiConfiguration
+        self.processingQueue = ProcessingQueue(
+            modelContext: container.mainContext,
+            pipeline: ParsingPipeline.make(
+                capabilities: capabilities,
+                configuration: apiConfiguration
+            )
+        )
+
+        // Сохранённый захват сразу уходит в разбор.
+        let queue = processingQueue
+        coordinator.onCaptureSaved = { capture in
+            queue.enqueue(capture)
+        }
+
         Log.capabilities.notice("Возможности устройства:\n\(self.capabilities.debugSummary, privacy: .public)")
     }
 
@@ -51,6 +72,11 @@ final class AppEnvironment {
             let store = RecordingStore()
             store.pruneOldRecordings()
         }
+
+        // Захваты, которые не успели разобраться в прошлый раз.
+        Task { [processingQueue] in
+            await processingQueue.processPending()
+        }
     }
 
     /// Тестовое окружение с базой в памяти и изолированными настройками.
@@ -59,6 +85,7 @@ final class AppEnvironment {
         let coordinator: CaptureCoordinator
         let settings: AppSettings
         let permissions: PermissionsManager
+        let processingQueue: ProcessingQueue
     }
 
     static func makeForTesting() -> Testing {
@@ -72,11 +99,21 @@ final class AppEnvironment {
             permissions: permissions,
             settings: settings
         )
+        // В тестах работает только локальный разбор: сети у тестов нет.
+        let queue = ProcessingQueue(
+            modelContext: container.mainContext,
+            pipeline: ParsingPipeline()
+        )
+        coordinator.onCaptureSaved = { capture in
+            queue.enqueue(capture)
+        }
+
         return Testing(
             container: container,
             coordinator: coordinator,
             settings: settings,
-            permissions: permissions
+            permissions: permissions,
+            processingQueue: queue
         )
     }
 }
