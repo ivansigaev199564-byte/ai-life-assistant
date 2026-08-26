@@ -79,16 +79,18 @@ final class CaptureCoordinator {
         modelContext: ModelContext,
         permissions: PermissionsManager,
         settings: AppSettings,
-        sessionManager: AudioSessionManager = AudioSessionManager(),
+        // Значения по умолчанию вычисляются вне изоляции актора, поэтому
+        // изолированные объекты создаём внутри инициализатора, а не в сигнатуре.
+        sessionManager: AudioSessionManager? = nil,
         recordingStore: RecordingStore = RecordingStore(),
-        haptics: HapticEngine = .shared
+        haptics: HapticEngine? = nil
     ) {
         self.modelContext = modelContext
         self.permissions = permissions
         self.settings = settings
-        self.sessionManager = sessionManager
+        self.sessionManager = sessionManager ?? AudioSessionManager()
         self.recordingStore = recordingStore
-        self.haptics = haptics
+        self.haptics = haptics ?? .shared
         self.detector = VoiceActivityDetector(configuration: settings.vadConfiguration)
 
         self.sessionManager.onInterruption = { [weak self] interruption in

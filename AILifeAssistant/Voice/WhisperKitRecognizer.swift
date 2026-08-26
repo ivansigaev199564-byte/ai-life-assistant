@@ -30,7 +30,9 @@ final class WhisperKitRecognizer: SpeechRecognizing {
 
     #if canImport(WhisperKit)
     private static var sharedPipeline: WhisperKit?
-    private static var loadTask: Task<WhisperKit, Error>?
+    /// Задача не возвращает саму модель: тип WhisperKit не Sendable,
+    /// поэтому результат кладётся в sharedPipeline на главном акторе.
+    private static var loadTask: Task<Void, Error>?
     #endif
 
     init(modelName: String = "base") {
@@ -61,14 +63,19 @@ final class WhisperKitRecognizer: SpeechRecognizing {
     /// секунды, повторять её на каждую фразу недопустимо.
     private static func pipeline(modelName: String) async throws -> WhisperKit {
         if let sharedPipeline { return sharedPipeline }
-        if let loadTask { return try await loadTask.value }
 
-        let task = Task<WhisperKit, Error> {
+        // Загрузка уже идёт: дожидаемся её и берём готовую модель.
+        if let loadTask {
+            try await loadTask.value
+            guard let sharedPipeline else { throw AppError.whisperModelUnavailable }
+            return sharedPipeline
+        }
+
+        let task = Task<Void, Error> { @MainActor in
             do {
                 let config = WhisperKitConfig(model: modelName, download: true)
-                let pipeline = try await WhisperKit(config)
+                WhisperKitRecognizer.sharedPipeline = try await WhisperKit(config)
                 Log.voice.notice("WhisperKit: модель \(modelName, privacy: .public) загружена")
-                return pipeline
             } catch {
                 Log.voice.error("WhisperKit: загрузка модели не удалась: \(error.localizedDescription)")
                 throw AppError.whisperModelUnavailable
@@ -77,10 +84,10 @@ final class WhisperKitRecognizer: SpeechRecognizing {
         loadTask = task
 
         do {
-            let pipeline = try await task.value
-            sharedPipeline = pipeline
+            try await task.value
             loadTask = nil
-            return pipeline
+            guard let sharedPipeline else { throw AppError.whisperModelUnavailable }
+            return sharedPipeline
         } catch {
             // Сбрасываем задачу, чтобы следующая попытка началась заново.
             loadTask = nil

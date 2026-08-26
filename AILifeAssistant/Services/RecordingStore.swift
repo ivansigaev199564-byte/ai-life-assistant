@@ -10,7 +10,9 @@ struct RecordingStore: Sendable {
     /// лишь для перепроверки спорных случаев, поэтому долго его не храним.
     static let retentionDays = 14
 
-    private let fileManager = FileManager.default
+    /// FileManager не Sendable, поэтому храним не экземпляр, а обращаемся
+    /// к общему объекту по месту: операции этого типа потокобезопасны.
+    private var fileManager: FileManager { .default }
 
     /// Каталог записей внутри Application Support, исключён из резервных копий.
     var directory: URL {
