@@ -54,7 +54,7 @@ final class CorrectionTests: XCTestCase {
     }
 
     func testDetectsCancellation() throws {
-        for phrase in ["отмени", "удали последнее", "забудь", "cancel that"] {
+        for phrase in ["отмени", "удали последнее", "забудь это", "cancel that"] {
             let correction = try XCTUnwrap(
                 CorrectionDetector.detect(in: phrase, context: parsingContext),
                 "Фраза «\(phrase)» должна распознаваться как отмена"
@@ -68,6 +68,7 @@ final class CorrectionTests: XCTestCase {
     func testDoesNotTreatOrdinaryPhraseAsCorrection() {
         let phrases = [
             "не забудь купить молоко",
+            "не забудь про встречу в пятницу",
             "нужно не забыть позвонить",
             "купил кофе за 300"
         ]

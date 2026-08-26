@@ -28,11 +28,23 @@ enum CorrectionDetector {
 
     // MARK: Маркеры
 
-    /// Отмена: «отмени», «удали последнее», «забудь».
+    /// Отмена: «отмени», «удали последнее», «забудь про это».
+    ///
+    /// Маркеры намеренно длиннее очевидных. Короткое «забудь» ловит
+    /// «не забудь купить молоко», то есть просьба не забыть удаляла бы
+    /// предыдущую запись. Отмена сказанного всегда звучит определённее,
+    /// чем одно слово посреди фразы.
     private static let cancellationMarkers = [
-        "отмени", "отменить", "удали последн", "удалить последн", "забудь",
-        "не надо", "не нужно записывать", "сотри",
-        "cancel that", "delete that", "never mind", "forget it", "undo"
+        "отмени", "отменить", "удали последн", "удалить последн", "сотри последн",
+        "забудь это", "забудь последн", "забудь про это", "не надо записывать",
+        "не нужно записывать", "не сохраняй",
+        "cancel that", "delete that", "never mind", "forget that", "undo that"
+    ]
+
+    /// Обороты, внутри которых маркеры выглядят как отмена, но ею не являются.
+    /// Проверяются первыми и снимают ложное срабатывание целиком.
+    private static let cancellationExceptions = [
+        "не забудь", "не забыть", "не забывай", "don't forget", "dont forget"
     ]
 
     /// Исправление: «не ..., а ...», «нет, ...», «вместо».
@@ -55,6 +67,11 @@ enum CorrectionDetector {
     static func looksLikeCorrection(_ text: String) -> Bool {
         let normalized = IntentKeywords.normalize(text)
 
+        // «Не забудь» это просьба запомнить, а не отменить.
+        if cancellationExceptions.contains(where: { normalized.contains($0) }) {
+            return false
+        }
+
         if cancellationMarkers.contains(where: { normalized.contains($0) }) {
             return true
         }
@@ -70,6 +87,10 @@ enum CorrectionDetector {
     /// Извлекает исправление из фразы.
     static func detect(in text: String, context: ParsingContext) -> Correction? {
         let normalized = IntentKeywords.normalize(text)
+
+        guard !cancellationExceptions.contains(where: { normalized.contains($0) }) else {
+            return nil
+        }
 
         if let marker = cancellationMarkers.first(where: { normalized.contains($0) }) {
             return Correction(target: .cancellation, confidence: 0.9, matchedText: marker)
