@@ -1,28 +1,5 @@
 import Foundation
 
-/// Какой движок произвёл разбор. Пишется в захват, чтобы можно было
-/// сравнивать качество и решать, стоит ли перезапрашивать облако.
-enum ParsingEngine: String, Codable, CaseIterable, Sendable {
-    /// Регулярные выражения и NaturalLanguage, работает всегда и мгновенно.
-    case fastPath
-    /// Локальная модель Apple Intelligence, iOS 26 и подходящее железо.
-    case foundationModels
-    /// Облачная модель со строгой схемой.
-    case cloud
-    /// Пользователь исправил разбор руками.
-    case manual
-
-    /// Насколько движку можно доверять при слиянии: больше значит важнее.
-    var authority: Int {
-        switch self {
-        case .fastPath: return 1
-        case .foundationModels: return 2
-        case .cloud: return 3
-        case .manual: return 4
-        }
-    }
-}
-
 /// Тип сущности, которую предлагает создать разбор.
 enum ParsedItemKind: String, Codable, CaseIterable, Sendable {
     case note

@@ -39,6 +39,10 @@ targets:
     dependencies:
       - package: ArgmaxOSS
         product: WhisperKit
+      - target: AILifeAssistantWidgets
+        embed: true
+      - target: AILifeAssistantShare
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ivans.ailifeassistant
@@ -72,6 +76,66 @@ targets:
           - com.ivans.ailifeassistant.sync
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
+
+  # Виджеты: кнопка в Пункте управления, виджет блокировки
+  # и живая активность с Динамическим островом.
+  AILifeAssistantWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: AILifeAssistantWidgets
+      # Тип живой активности общий с приложением: одно запускает, другое рисует.
+      - path: AILifeAssistant/Integrations/CaptureActivityAttributes.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ivans.ailifeassistant.widgets
+        PRODUCT_MODULE_NAME: AILifeAssistantWidgets
+        SKIP_INSTALL: YES
+    entitlements:
+      path: AILifeAssistantWidgets/Widgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.ivans.ailifeassistant
+    info:
+      path: AILifeAssistantWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: AI Assistant
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
+  # Приём текста, ссылок и картинок из других приложений.
+  AILifeAssistantShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: AILifeAssistantShare
+      # Расширение пишет прямо в общую базу, поэтому ему нужны модели
+      # и конфигурация хранилища, но не весь слой разбора.
+      - path: AILifeAssistant/Models
+      - path: AILifeAssistant/App/Persistence.swift
+      - path: AILifeAssistant/Core/Logging.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ivans.ailifeassistant.share
+        PRODUCT_MODULE_NAME: AILifeAssistantShare
+        SKIP_INSTALL: YES
+    entitlements:
+      path: AILifeAssistantShare/Share.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.ivans.ailifeassistant
+    info:
+      path: AILifeAssistantShare/Info.plist
+      properties:
+        CFBundleDisplayName: AI Assistant
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsImageWithMaxCount: 1
 
   AILifeAssistantTests:
     type: bundle.unit-test
