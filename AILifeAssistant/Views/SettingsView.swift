@@ -16,6 +16,10 @@ struct SettingsView: View {
     @State private var isPreparingWhisper = false
     @State private var whisperError: String?
     @State private var recordingsSize: Int64 = 0
+    @State private var exportedFile: URL?
+    @State private var exportError: String?
+
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         @Bindable var settings = settings
@@ -42,6 +46,35 @@ struct SettingsView: View {
                 }
             }
             .task { refreshSize() }
+            .sheet(item: exportedFileBinding) { file in
+                // Системный лист «Поделиться»: файл можно положить
+                // в Файлы, отправить себе почтой или открыть в таблице.
+                ShareSheet(url: file.url)
+            }
+        }
+    }
+
+    /// Обёртка для файла: sheet(item:) требует Identifiable.
+    private struct ExportedFile: Identifiable {
+        let url: URL
+        var id: String { url.absoluteString }
+    }
+
+    private var exportedFileBinding: Binding<ExportedFile?> {
+        Binding(
+            get: { exportedFile.map(ExportedFile.init) },
+            set: { newValue in exportedFile = newValue?.url }
+        )
+    }
+
+    private func export(_ format: ExportService.Format) {
+        exportError = nil
+
+        do {
+            exportedFile = try ExportService(modelContext: modelContext).export(format)
+        } catch {
+            exportError = "Не удалось подготовить файл: " + error.localizedDescription
+            Log.data.error("Выгрузка не удалась: \(error.localizedDescription)")
         }
     }
 
@@ -254,6 +287,24 @@ struct SettingsView: View {
             Text("Записи и разбор хранятся только на устройстве.")
                 .font(DS.Font.caption)
                 .foregroundStyle(DS.Palette.textSecondary)
+
+            // Выгрузка стоит выше удаления не случайно: сначала человеку
+            // предлагают забрать своё, и только потом стереть.
+            ForEach(ExportService.Format.allCases) { format in
+                Button {
+                    export(format)
+                } label: {
+                    Label(format.title, systemImage: "square.and.arrow.up")
+                        .font(DS.Font.caption)
+                }
+                .foregroundStyle(DS.Palette.accent)
+            }
+
+            if let exportError {
+                Text(exportError)
+                    .font(DS.Font.micro)
+                    .foregroundStyle(DS.Palette.danger)
+            }
 
             Button(role: .destructive) {
                 RecordingStore().deleteAll()

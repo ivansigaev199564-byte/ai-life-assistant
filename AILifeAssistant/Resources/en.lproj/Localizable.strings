@@ -43,3 +43,122 @@
 /* Common */
 "capture.empty" = "Empty capture";
 "note.untitled" = "Untitled";
+
+/* Export */
+"export.csv.header" = "Date,Amount,Currency,Category,Description,Place";
+
+/* Интерфейс: русская строка служит ключом, здесь её английский вариант.
+   Тон тот же, что в оригинале: коротко и без канцелярита. */
+
+/* Экраны и разделы */
+"Инбокс" = "Inbox";
+"Настройки" = "Settings";
+"Поиск" = "Search";
+"Расходы" = "Spending";
+"Контекст" = "Context";
+"Запись" = "Capture";
+"На проверку" = "Needs review";
+"Люди и проекты" = "People and projects";
+"Меню" = "Menu";
+"Люди" = "People";
+"Проекты" = "Projects";
+
+/* Действия */
+"Говорить" = "Speak";
+"Готово" = "Done";
+"Отмена" = "Cancel";
+"Отменить" = "Undo";
+"Сохранить" = "Save";
+"Создать" = "Create";
+"Удалить" = "Delete";
+"Пропустить" = "Skip";
+"Дальше" = "Next";
+"Очистить" = "Clear";
+"Переименовать" = "Rename";
+"Ввести текстом" = "Type instead";
+"Исправить текст" = "Fix the text";
+"Разобрать" = "Parse";
+"Разобрать заново" = "Parse again";
+"Всё верно" = "Looks right";
+"Запросить разрешения" = "Grant access";
+"Открыть настройки" = "Open Settings";
+"Открыть системные настройки" = "Open system settings";
+"Загрузить модель" = "Download model";
+"Создать проект" = "Create project";
+"Удалить проект" = "Delete project";
+"Удалить все аудиозаписи" = "Delete all recordings";
+"Действия с проектом" = "Project actions";
+"Разрешить и начать" = "Allow and start";
+"Вернуть из архива" = "Move out of archive";
+"В архив" = "Archive";
+
+/* Поля ввода */
+"Что ищем?" = "What are you looking for?";
+"Поиск по записям" = "Search your captures";
+"Название" = "Name";
+"Имя" = "Name";
+"Имя человека" = "Person's name";
+"Название проекта" = "Project name";
+"Новая запись" = "New capture";
+"Новый проект" = "New project";
+"Например" = "For example";
+"Как в системе" = "Same as system";
+
+/* Пустые состояния */
+"Пока пусто" = "Nothing yet";
+"Ничего не найдено" = "Nothing found";
+"Всё разобрано" = "All clear";
+"Пока нечего показывать" = "Nothing to show yet";
+"Людей пока нет" = "No people yet";
+"Проектов пока нет" = "No projects yet";
+"Проект пуст" = "This project is empty";
+
+/* Подсказки и объяснения */
+"Нажмите «Говорить» и скажите, например: «купил кофе за 300» или «напомни завтра позвонить в банк»." = "Tap Speak and say something like «spent 5 dollars on coffee» or «remind me to call the bank tomorrow».";
+"Попробуйте другое слово из записи или её часть." = "Try another word from the capture, or part of one.";
+"Попробуйте другое слово из записи." = "Try another word from the capture.";
+"Записи, в которых приложение засомневалось, появятся здесь." = "Captures the app wasn't sure about will show up here.";
+"Записи с упоминанием этого человека появятся здесь." = "Captures mentioning this person will show up here.";
+"Скажите «купил кофе за 300», и трата появится здесь." = "Say «spent 5 dollars on coffee», and it will show up here.";
+"Скажите «напомни позвонить Мише», и карточка появится здесь сама." = "Say «remind me to call Misha», and the card appears here on its own.";
+"Скажите что-нибудь с названием проекта, и запись свяжется с ним сама." = "Say anything with the project name, and the capture links itself to it.";
+"Заведите проект, и записи с его названием будут связываться с ним сами." = "Create a project, and captures naming it will link themselves to it.";
+"Записи, где встретится это название, свяжутся с проектом сами." = "Captures that mention this name will link themselves to the project.";
+"Текст попадёт в инбокс и будет разобран так же, как голосовая запись." = "The text lands in your inbox and gets parsed just like speech.";
+"После исправления запись будет разобрана заново." = "After the fix, the capture is parsed again.";
+"Прежнее написание останется как синоним, чтобы старые записи не потерялись." = "The old spelling stays as an alias so earlier captures aren't lost.";
+"Приложение не уверено, что поняло эти записи правильно. Проверьте и поправьте, если нужно." = "The app isn't sure it understood these correctly. Check them and fix what's wrong.";
+"Часть результатов найдена по смыслу, а не по точному совпадению." = "Some results were found by meaning, not by exact match.";
+"Записи и разбор хранятся только на устройстве." = "Captures and parsing stay on this device only.";
+"Модель весит несколько сотен мегабайт, качайте по Wi-Fi." = "The model is a few hundred megabytes, download it over Wi-Fi.";
+"Локальная модель доступна на iPhone 15 Pro и новее с iOS 26. Без неё разбор идёт по правилам." = "The on-device model needs iPhone 15 Pro or newer on iOS 26. Without it, parsing falls back to rules.";
+"Можно сказать несколько дел подряд одной фразой: приложение разложит их по отдельности." = "You can say several things in one breath: the app splits them apart.";
+"Речь распознаётся на устройстве и никуда не отправляется. Записи хранятся только у вас." = "Speech is recognized on device and never sent anywhere. Your captures stay with you.";
+"Приложение слушает обычную речь и само решает, что это было: трата, напоминание, задача или мысль." = "The app listens to ordinary speech and works out what it was: a expense, a reminder, a task or a thought.";
+"Скажите, и всё разложится по местам" = "Just say it, and it lands where it belongs";
+"Попробуйте сказать так" = "Try saying this";
+"Нужен доступ к микрофону" = "Microphone access needed";
+"Совет: назначьте кнопку действия на «Быструю запись», и запись будет начинаться одним нажатием." = "Tip: assign the Action Button to Quick Capture, and recording starts with one press.";
+"Вместе с записью удалятся созданные из неё заметки, задачи, напоминания и расходы." = "Deleting the capture also removes the notes, tasks, reminders and expenses made from it.";
+"Записи останутся на месте, исчезнет только связь с проектом." = "The captures stay, only the link to the project goes away.";
+
+/* Состояния и метки */
+"Сказано" = "Said";
+"Разбор" = "Parsing";
+"Создано" = "Created";
+"Уверенность" = "Confidence";
+"Источник" = "Source";
+"Модель" = "Device";
+"Модель загружена" = "Model downloaded";
+"Загружаю модель" = "Downloading model";
+"Ищу по смыслу" = "Searching by meaning";
+"разбираю" = "parsing";
+"Требует проверки" = "Needs review";
+"В архиве" = "Archived";
+"По категориям" = "By category";
+"Куда чаще всего" = "Where most often";
+"Потрачено" = "Spent";
+"Траты" = "Expenses";
+"Удалить запись?" = "Delete this capture?";
+"Удалить проект?" = "Delete this project?";
+"Дважды коснитесь, чтобы открыть запись" = "Double tap to open the capture";
