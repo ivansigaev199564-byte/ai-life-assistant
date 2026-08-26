@@ -19,6 +19,7 @@ struct RootView: View {
     @State private var isShowingReview = false
     @State private var isShowingSearch = false
     @State private var isShowingStats = false
+    @State private var isShowingContext = false
     @State private var isShowingTextInput = false
     @State private var draftText = ""
 
@@ -62,6 +63,7 @@ struct RootView: View {
             }
             .sheet(isPresented: $isShowingSearch) { SearchView() }
             .sheet(isPresented: $isShowingStats) { StatsView() }
+            .sheet(isPresented: $isShowingContext) { ContextView() }
             .sheet(isPresented: $isShowingTextInput) { textInputSheet }
             .overlay {
                 if coordinator.phase.isActive {
@@ -95,16 +97,6 @@ struct RootView: View {
                         .accessibilityLabel("Поиск")
                     }
 
-                    if hasExpenses {
-                        Button {
-                            isShowingStats = true
-                        } label: {
-                            Image(systemName: "chart.pie")
-                        }
-                        .buttonStyle(CircleButtonStyle())
-                        .accessibilityLabel("Расходы")
-                    }
-
                     if reviewCount > 0 {
                         Button {
                             isShowingReview = true
@@ -121,22 +113,43 @@ struct RootView: View {
                         .accessibilityLabel("На проверку, записей: \(reviewCount)")
                     }
 
-                    Button {
-                        draftText = ""
-                        isShowingTextInput = true
-                    } label: {
-                        Image(systemName: "square.and.pencil")
-                    }
-                    .buttonStyle(CircleButtonStyle())
-                    .accessibilityLabel("Ввести текстом")
+                    // Всё, что открывают изредка, собрано в одно меню:
+                    // ряд из пяти кнопок в верхнем углу и выглядит тесно,
+                    // и требует целиться.
+                    Menu {
+                        if hasExpenses {
+                            Button {
+                                isShowingStats = true
+                            } label: {
+                                Label("Расходы", systemImage: "chart.pie")
+                            }
+                        }
 
-                    Button {
-                        isShowingSettings = true
+                        Button {
+                            isShowingContext = true
+                        } label: {
+                            Label("Люди и проекты", systemImage: "person.2")
+                        }
+
+                        Button {
+                            draftText = ""
+                            isShowingTextInput = true
+                        } label: {
+                            Label("Ввести текстом", systemImage: "square.and.pencil")
+                        }
+
+                        Divider()
+
+                        Button {
+                            isShowingSettings = true
+                        } label: {
+                            Label("Настройки", systemImage: "gearshape")
+                        }
                     } label: {
-                        Image(systemName: "gearshape")
+                        Image(systemName: "ellipsis")
                     }
                     .buttonStyle(CircleButtonStyle())
-                    .accessibilityLabel("Настройки")
+                    .accessibilityLabel("Меню")
                 }
             )
         }
