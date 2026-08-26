@@ -125,7 +125,12 @@ final class EventKitService {
     /// - Returns: идентификатор системной записи.
     @discardableResult
     func mirror(_ reminder: Reminder) async -> String? {
-        let hasAccess = remindersAccess == .granted || await requestRemindersAccess()
+        // Ленивое вычисление правого операнда несовместимо с await,
+        // поэтому проверка развёрнута в явное ветвление.
+        var hasAccess = remindersAccess == .granted
+        if !hasAccess {
+            hasAccess = await requestRemindersAccess()
+        }
         guard hasAccess, let list = appReminderList() else { return nil }
 
         let systemReminder: EKReminder
@@ -200,7 +205,10 @@ final class EventKitService {
         duration: TimeInterval = 3600,
         notes: String? = nil
     ) async -> String? {
-        let hasAccess = calendarAccess == .granted || await requestCalendarAccess()
+        var hasAccess = calendarAccess == .granted
+        if !hasAccess {
+            hasAccess = await requestCalendarAccess()
+        }
         guard hasAccess, let calendar = store.defaultCalendarForNewEvents else { return nil }
 
         let event = EKEvent(eventStore: store)
