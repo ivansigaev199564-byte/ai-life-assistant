@@ -17,6 +17,8 @@ struct RootView: View {
 
     @State private var isShowingSettings = false
     @State private var isShowingReview = false
+    @State private var isShowingSearch = false
+    @State private var isShowingStats = false
     @State private var isShowingTextInput = false
     @State private var draftText = ""
 
@@ -30,6 +32,11 @@ struct RootView: View {
             get: { !settings.hasCompletedOnboarding },
             set: { shown in if !shown { settings.hasCompletedOnboarding = true } }
         )
+    }
+
+    /// Есть ли траты: без них экран расходов пуст и в шапке не нужен.
+    private var hasExpenses: Bool {
+        allCaptures.contains { !$0.expenses.isEmpty }
     }
 
     private var reviewCount: Int {
@@ -53,6 +60,8 @@ struct RootView: View {
             .sheet(isPresented: $isShowingReview) {
                 ReviewInboxView(processingQueue: processingQueue)
             }
+            .sheet(isPresented: $isShowingSearch) { SearchView() }
+            .sheet(isPresented: $isShowingStats) { StatsView() }
             .sheet(isPresented: $isShowingTextInput) { textInputSheet }
             .overlay {
                 if coordinator.phase.isActive {
@@ -76,6 +85,26 @@ struct RootView: View {
         ScreenHeader(title: "Инбокс", subtitle: subtitle) {
             AnyView(
                 HStack(spacing: DS.Spacing.xs) {
+                    if !allCaptures.isEmpty {
+                        Button {
+                            isShowingSearch = true
+                        } label: {
+                            Image(systemName: "magnifyingglass")
+                        }
+                        .buttonStyle(CircleButtonStyle())
+                        .accessibilityLabel("Поиск")
+                    }
+
+                    if hasExpenses {
+                        Button {
+                            isShowingStats = true
+                        } label: {
+                            Image(systemName: "chart.pie")
+                        }
+                        .buttonStyle(CircleButtonStyle())
+                        .accessibilityLabel("Расходы")
+                    }
+
                     if reviewCount > 0 {
                         Button {
                             isShowingReview = true
@@ -242,5 +271,11 @@ struct RootView: View {
         .environment(preview.permissions)
         .environment(preview.processingQueue)
         .environment(UndoService(modelContext: preview.container.mainContext))
+        .environment(
+            SearchService(
+                modelContext: preview.container.mainContext,
+                networkMonitor: NetworkMonitor()
+            )
+        )
         .modelContainer(preview.container)
 }

@@ -32,6 +32,7 @@ struct AILifeAssistantApp: App {
                     .environment(environment.permissions)
                     .environment(environment.processingQueue)
                     .environment(environment.undoService)
+                    .environment(environment.searchService)
                     .environment(\.capabilities, environment.capabilities)
                     .modelContainer(environment.container)
             }
