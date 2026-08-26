@@ -1,0 +1,45 @@
+/* Ошибки */
+"error.microphone.denied" = "Нет доступа к микрофону. Разрешите его в настройках, иначе запись невозможна.";
+"error.speech.denied" = "Нет доступа к распознаванию речи. Разрешите его в настройках.";
+"error.speech.unavailable %@" = "Распознавание для языка %@ недоступно на этом устройстве.";
+"error.audio.session %@" = "Не удалось включить микрофон: %@";
+"error.audio.engine %@" = "Сбой аудиодвижка: %@";
+"error.recognition.failed %@" = "Распознавание не удалось: %@";
+"error.transcription.empty" = "Речь не распознана. Попробуйте сказать ещё раз.";
+"error.whisper.unavailable" = "Модель WhisperKit не загружена. Скачайте её в настройках.";
+"error.persistence.failed %@" = "Не удалось сохранить запись: %@";
+
+/* Движки распознавания */
+"engine.apple.speech" = "Apple Speech";
+"engine.apple.modern" = "Apple Speech (iOS 26)";
+"engine.whisperkit" = "WhisperKit";
+"engine.none" = "без распознавания";
+
+"engine.preference.automatic" = "Автоматически";
+"engine.preference.apple" = "Apple Speech";
+"engine.preference.whisper" = "WhisperKit";
+"engine.preference.automatic.hint" = "Приложение выберет самый быстрый доступный движок.";
+"engine.preference.apple.hint" = "Мгновенный старт и текст по ходу речи. Нужен выбранный язык.";
+"engine.preference.whisper.hint" = "Точнее на шумном фоне и смешанной речи, сам определяет язык. Текст появляется после остановки записи.";
+
+/* Приоритеты */
+"priority.none" = "без приоритета";
+"priority.low" = "низкий";
+"priority.medium" = "средний";
+"priority.high" = "высокий";
+
+/* Категории расходов */
+"expense.category.food" = "Еда";
+"expense.category.transport" = "Транспорт";
+"expense.category.housing" = "Жильё";
+"expense.category.health" = "Здоровье";
+"expense.category.entertainment" = "Развлечения";
+"expense.category.shopping" = "Покупки";
+"expense.category.education" = "Образование";
+"expense.category.travel" = "Поездки";
+"expense.category.services" = "Услуги";
+"expense.category.other" = "Прочее";
+
+/* Общее */
+"capture.empty" = "Пустая запись";
+"note.untitled" = "Без названия";

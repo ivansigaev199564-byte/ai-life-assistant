@@ -1,0 +1,22 @@
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+!*.xcodeproj/project.pbxproj
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.xcresult
+
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# macOS
+.DS_Store
+
+# Секреты
+*.xcconfig.local
+Secrets.plist
+.env

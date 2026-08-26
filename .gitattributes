@@ -1,0 +1,8 @@
+# Проект разрабатывается на Windows, а собирается на macOS.
+# В репозитории всегда LF, иначе ломаются Makefile и скрипты сборки.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.pdf binary
+*.xcprivacy text eol=lf

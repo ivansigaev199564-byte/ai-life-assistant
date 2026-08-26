@@ -1,0 +1,45 @@
+/* Errors */
+"error.microphone.denied" = "Microphone access is off. Turn it on in Settings to record.";
+"error.speech.denied" = "Speech recognition access is off. Turn it on in Settings.";
+"error.speech.unavailable %@" = "Speech recognition for %@ is unavailable on this device.";
+"error.audio.session %@" = "Could not start the microphone: %@";
+"error.audio.engine %@" = "Audio engine failure: %@";
+"error.recognition.failed %@" = "Recognition failed: %@";
+"error.transcription.empty" = "No speech recognized. Try again.";
+"error.whisper.unavailable" = "The WhisperKit model is not downloaded. Get it in Settings.";
+"error.persistence.failed %@" = "Could not save the capture: %@";
+
+/* Speech engines */
+"engine.apple.speech" = "Apple Speech";
+"engine.apple.modern" = "Apple Speech (iOS 26)";
+"engine.whisperkit" = "WhisperKit";
+"engine.none" = "no recognition";
+
+"engine.preference.automatic" = "Automatic";
+"engine.preference.apple" = "Apple Speech";
+"engine.preference.whisper" = "WhisperKit";
+"engine.preference.automatic.hint" = "The app picks the fastest available engine.";
+"engine.preference.apple.hint" = "Instant start and live text. Requires a selected language.";
+"engine.preference.whisper.hint" = "More accurate in noise and mixed speech, detects the language itself. Text appears after you stop.";
+
+/* Priorities */
+"priority.none" = "none";
+"priority.low" = "low";
+"priority.medium" = "medium";
+"priority.high" = "high";
+
+/* Expense categories */
+"expense.category.food" = "Food";
+"expense.category.transport" = "Transport";
+"expense.category.housing" = "Housing";
+"expense.category.health" = "Health";
+"expense.category.entertainment" = "Entertainment";
+"expense.category.shopping" = "Shopping";
+"expense.category.education" = "Education";
+"expense.category.travel" = "Travel";
+"expense.category.services" = "Services";
+"expense.category.other" = "Other";
+
+/* Common */
+"capture.empty" = "Empty capture";
+"note.untitled" = "Untitled";
