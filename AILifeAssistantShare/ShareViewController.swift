@@ -45,7 +45,7 @@ final class ShareViewController: UIViewController {
                 collected.append(text)
             } else if let url = await loadURL(from: attachment) {
                 collected.append(url.absoluteString)
-            } else if await attachment.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+            } else if attachment.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
                 // Картинку не разбираем: распознавание текста на изображении
                 // это отдельная работа, и делать её в расширении с жёстким
                 // лимитом памяти неразумно. Сохраняем пометку, чтобы
