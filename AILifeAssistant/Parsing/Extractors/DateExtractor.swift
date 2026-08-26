@@ -230,8 +230,12 @@ enum DateExtractor {
         let minute: Int
     }
 
-    /// «в девять», «в 9», «в 15:30», «at 9 pm», «в половине десятого».
+    /// «в девять», «в 9», «в 15:30», «at 9 pm», «в полдевятого».
     private static func extractTimeOfDay(from text: String, context: ParsingContext) -> TimeOfDay? {
+        // Дробное время проверяется первым: иначе «полдевятого» рассыпается
+        // на несуществующий час «пол» и остаток слова.
+        if let half = extractHalfHour(from: text) { return half }
+
         // Числовое время с необязательными минутами и суффиксом am/pm.
         let numericPattern = #"(?:в|at|к)\s*(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|утра|дня|вечера|ночи)?"#
         if let regex = try? NSRegularExpression(pattern: numericPattern) {
@@ -275,6 +279,45 @@ enum DateExtractor {
         }
     }
 
+    /// Дробное время разговором.
+    ///
+    /// «Полдевятого» это половина девятого, то есть 8:30, а не 9:30:
+    /// счёт идёт к названному часу, а не от него. Ошибка здесь сдвигает
+    /// напоминание на час, и человек опаздывает по вине приложения.
+    private static let halfHourNames: [String: Int] = [
+        "полпервого": 0, "полвторого": 1, "полтретьего": 2, "полчетвертого": 3,
+        "полпятого": 4, "полшестого": 5, "полседьмого": 6, "полвосьмого": 7,
+        "полдевятого": 8, "полдесятого": 9, "полодиннадцатого": 10,
+        "полдвенадцатого": 11
+    ]
+
+    /// Правила повторения: «каждый день», «по понедельникам».
+    ///
+    /// Само повторение приложение пока не планирует, но правило сохраняется
+    /// в записи: потерять сказанное хуже, чем не выполнить его сразу.
+    private static let recurrenceRules: [(markers: [String], rule: String)] = [
+        (["каждый день", "ежедневно", "every day", "daily"], "daily"),
+        (["каждую неделю", "еженедельно", "every week", "weekly"], "weekly"),
+        (["каждый месяц", "ежемесячно", "every month", "monthly"], "monthly"),
+        (["по будням", "в будни", "weekdays"], "weekdays"),
+        (["по выходным", "weekends"], "weekends"),
+        (["по понедельникам"], "weekly:mon"),
+        (["по вторникам"], "weekly:tue"),
+        (["по средам"], "weekly:wed"),
+        (["по четвергам"], "weekly:thu"),
+        (["по пятницам"], "weekly:fri"),
+        (["по субботам"], "weekly:sat"),
+        (["по воскресеньям"], "weekly:sun")
+    ]
+
+    /// Находит правило повторения во фразе.
+    static func recurrenceRule(in text: String) -> String? {
+        let normalized = IntentKeywords.normalize(text)
+        return recurrenceRules.first { entry in
+            entry.markers.contains { normalized.contains($0) }
+        }?.rule
+    }
+
     private static let spelledHours: [String: Int] = [
         "час": 13, "два": 14, "три": 15, "четыре": 16, "пять": 17,
         "шесть": 18, "семь": 19, "восемь": 20, "девять": 9, "десять": 10,
@@ -283,6 +326,29 @@ enum DateExtractor {
         "six": 18, "seven": 19, "eight": 20, "nine": 9, "ten": 10,
         "eleven": 11, "twelve": 12
     ]
+
+    /// «полдевятого», «пол девятого», «в половине девятого».
+    private static func extractHalfHour(from text: String) -> TimeOfDay? {
+        let normalized = IntentKeywords.normalize(text)
+            .replacingOccurrences(of: "пол ", with: "пол")
+            .replacingOccurrences(of: "половине ", with: "пол")
+            .replacingOccurrences(of: "половина ", with: "пол")
+
+        for (name, hour) in halfHourNames where normalized.contains(name) {
+            var adjusted = hour
+
+            // Утренние и вечерние часы различаются по уточнению, а без него
+            // берём разумное: половина девятого это утро, половина шестого вечер.
+            if normalized.contains("вечера") || normalized.contains("ночи") {
+                adjusted = hour < 12 ? hour + 12 : hour
+            } else if !normalized.contains("утра"), hour < 7 {
+                adjusted = hour + 12
+            }
+
+            return TimeOfDay(hour: adjusted, minute: 30)
+        }
+        return nil
+    }
 
     /// «в девять», «at nine». Час без уточнения трактуем по здравому смыслу:
     /// девять это утро, а три это день, потому что в три ночи не назначают дел.

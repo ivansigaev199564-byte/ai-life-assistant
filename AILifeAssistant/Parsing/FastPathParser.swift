@@ -195,6 +195,11 @@ struct FastPathParser: IntentParsing {
         if amount.currencyCode != nil { confidence += 0.1 }
         if category != .other { confidence += 0.1 }
 
+        // Место траты: без него месячный отчёт показывает, что ушло
+        // двенадцать тысяч на еду, и не объясняет куда.
+        let merchant = MerchantExtractor.extract(from: text)
+        if merchant != nil { confidence += 0.05 }
+
         return ParsedItem(
             kind: .expense,
             title: cleanTitle(text),
@@ -203,6 +208,7 @@ struct FastPathParser: IntentParsing {
             amount: amount.amount,
             currencyCode: amount.currencyCode ?? context.defaultCurrencyCode,
             category: category,
+            merchant: merchant,
             people: people,
             confidence: min(1, confidence),
             sourceText: text
@@ -237,9 +243,16 @@ struct FastPathParser: IntentParsing {
         if date != nil { confidence += 0.15 }
         if date?.hasExplicitTime == true { confidence += 0.1 }
 
+        // Правило повторения сохраняется в заметке к напоминанию:
+        // само повторение приложение пока не планирует, но терять
+        // сказанное нельзя.
+        let recurrence = DateExtractor.recurrenceRule(in: text)
+        let details = recurrence.map { "Повторение: " + $0 } ?? ""
+
         return ParsedItem(
             kind: .reminder,
             title: cleanTitle(text, removing: IntentKeywords.reminder + (date.map { [$0.matchedText] } ?? [])),
+            details: details,
             dueDate: fireDate,
             priority: priority,
             people: people,

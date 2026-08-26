@@ -63,8 +63,30 @@ enum AmountExtractor {
 
     /// Множители читаются отдельно: «две тысячи», «три миллиона», «5k».
     private static let multipliers: [String: Decimal] = [
-        "тысяч": 1_000, "тыс": 1_000, "миллион": 1_000_000, "млн": 1_000_000,
+        "тысяч": 1_000, "тыщ": 1_000, "тыс": 1_000,
+        "миллион": 1_000_000, "млн": 1_000_000, "лям": 1_000_000,
         "hundred": 100, "thousand": 1_000, "million": 1_000_000, "k": 1_000
+    ]
+
+    /// Разговорные названия сумм.
+    ///
+    /// Живая речь почти не пользуется числительными: люди говорят «косарь»
+    /// и «полтинник», а не «одна тысяча» и «пятьдесят». Без этого словаря
+    /// половина фраз о деньгах вообще не распознаётся как трата.
+    private static let colloquialAmounts: [String: Decimal] = [
+        "полтинник": 50, "полтос": 50,
+        "стольник": 100, "сотка": 100, "сотня": 100,
+        "двушка": 200,
+        "пятихатка": 500, "пятиха": 500, "пятьсотка": 500,
+        "косарь": 1_000, "косаря": 1_000, "штука": 1_000, "штуки": 1_000,
+        "тонна": 1_000, "рубль": 1
+    ]
+
+    /// Дробные суммы разговором: «полторы тысячи», «два с половиной косаря».
+    private static let fractionalPrefixes: [String: Decimal] = [
+        "полтора": Decimal(string: "1.5")!,
+        "полторы": Decimal(string: "1.5")!,
+        "пол": Decimal(string: "0.5")!
     ]
 
     // MARK: Точка входа
@@ -156,6 +178,25 @@ enum AmountExtractor {
         for word in words {
             if let unit = russianUnits[word] ?? englishUnits[word] {
                 current += unit
+                matched.append(word)
+                sawNumber = true
+                continue
+            }
+
+            // «Косарь», «полтинник», «пятихатка»: разговорная сумма сама
+            // по себе завершённая, множитель к ней не применяется.
+            if let colloquial = colloquialAmounts.first(where: { word.hasPrefix($0.key) })?.value {
+                current = current == 0 ? colloquial : current * colloquial
+                total += current
+                current = 0
+                matched.append(word)
+                sawNumber = true
+                continue
+            }
+
+            // «Полторы тысячи»: дробный множитель ждёт следующего слова.
+            if let fraction = fractionalPrefixes.first(where: { word == $0.key })?.value {
+                current = fraction
                 matched.append(word)
                 sawNumber = true
                 continue
