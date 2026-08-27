@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftData
+import WidgetKit
 
 /// Очередь разбора захватов.
 ///
@@ -162,6 +163,11 @@ final class ProcessingQueue {
             let result = materializer.materialize(outcome.final, for: capture)
             lastResult = result
             onEntitiesMaterialized?(capture)
+
+            // Виджет живёт в другом процессе и об изменениях не узнает:
+            // список дел на экране блокировки обязан обновиться сразу,
+            // иначе человек видит вчерашнее.
+            WidgetCenter.shared.reloadAllTimelines()
 
             Log.data.notice("""
                 Разбор завершён: создано \(result.created), обновлено \(result.updated), \

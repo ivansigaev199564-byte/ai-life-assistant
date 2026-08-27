@@ -6,6 +6,7 @@ import WidgetKit
 struct AILifeAssistantWidgetBundle: WidgetBundle {
 
     var body: some Widget {
+        TodayWidget()
         QuickCaptureWidget()
         RecordingActivityWidget()
 

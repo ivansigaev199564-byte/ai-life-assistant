@@ -86,6 +86,11 @@ targets:
       - path: AILifeAssistantWidgets
       # Тип живой активности общий с приложением: одно запускает, другое рисует.
       - path: AILifeAssistant/Integrations/CaptureActivityAttributes.swift
+      # Виджет «Сегодня» читает базу сам: будить приложение ради
+      # перерисовки нельзя, система его просто не запустит.
+      - path: AILifeAssistant/Models
+      - path: AILifeAssistant/App/Persistence.swift
+      - path: AILifeAssistant/Core/Logging.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ivans.ailifeassistant.widgets

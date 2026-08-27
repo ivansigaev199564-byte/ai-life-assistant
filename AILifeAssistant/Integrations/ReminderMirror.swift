@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftData
+import WidgetKit
 
 /// Связывает напоминания приложения с системой.
 ///
@@ -160,6 +161,7 @@ final class ReminderMirror {
 
         lastSyncAt = .now
         save()
+        WidgetCenter.shared.reloadAllTimelines()
         Log.data.notice("Закрыто напоминаний из системного приложения: \(completed.count)")
     }
 
