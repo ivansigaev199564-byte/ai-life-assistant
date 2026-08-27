@@ -100,8 +100,30 @@ final class ExportServiceTests: XCTestCase {
     // MARK: CSV
 
     func testCSVHasHeaderAndRows() throws {
-        context.insert(Expense(amount: 300, currencyCode: "RUB", category: .food, details: "кофе"))
-        context.insert(Expense(amount: 500, currencyCode: "RUB", category: .transport, details: "такси"))
+        // Время задаётся явно: строки сортируются по дате траты,
+        // и при одинаковом времени порядок между ними не определён,
+        // отчего тест падал бы через раз безотносительно к коду.
+        let earlier = Date(timeIntervalSince1970: 1_780_000_000)
+        let later = earlier.addingTimeInterval(3600)
+
+        context.insert(
+            Expense(
+                amount: 300,
+                currencyCode: "RUB",
+                category: .food,
+                details: "кофе",
+                spentAt: later
+            )
+        )
+        context.insert(
+            Expense(
+                amount: 500,
+                currencyCode: "RUB",
+                category: .transport,
+                details: "такси",
+                spentAt: earlier
+            )
+        )
         try context.save()
 
         let url = try export(.csv)
@@ -109,7 +131,8 @@ final class ExportServiceTests: XCTestCase {
         let lines = text.components(separatedBy: "\n").filter { !$0.isEmpty }
 
         XCTAssertEqual(lines.count, 3, "Заголовок и две строки")
-        XCTAssertTrue(lines[1].contains("300"))
+        // Свежая трата идёт первой: выгрузку читают сверху вниз.
+        XCTAssertTrue(lines[1].contains("300"), "Первой идёт более свежая трата")
         XCTAssertTrue(lines[2].contains("500"))
     }
 
