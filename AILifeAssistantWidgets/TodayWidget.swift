@@ -154,7 +154,7 @@ struct TodayWidgetView: View {
                 .font(.system(size: compact ? 9 : 11))
                 // Просроченное красное: это единственное, ради чего стоит
                 // тратить цвет в таком маленьком пространстве.
-                .foregroundStyle(item.isOverdue ? .red : .tint)
+                .foregroundStyle(item.isOverdue ? Color.red : Color.accentColor)
 
             Text(item.title)
                 .font(compact ? .caption2 : .caption)
@@ -165,7 +165,7 @@ struct TodayWidgetView: View {
             if let time = item.date {
                 Text(time.formatted(date: .omitted, time: .shortened))
                     .font(.caption2.monospacedDigit())
-                    .foregroundStyle(item.isOverdue ? .red : .secondary)
+                    .foregroundStyle(item.isOverdue ? Color.red : Color.secondary)
             }
         }
     }
