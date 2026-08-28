@@ -44,7 +44,7 @@ struct SupabaseRESTClient: Sendable {
     init(
         configuration: SupabaseConfiguration,
         accessToken: String?,
-        session: URLSession = .shared
+        session: URLSession = PrivateSession.shared
     ) {
         self.configuration = configuration
         self.accessToken = accessToken

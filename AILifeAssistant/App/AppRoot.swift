@@ -13,7 +13,7 @@ struct AppRoot: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        RootView()
+        content
             .overlayWindow(isPresented: needsOverlayWindow) {
                 CaptureOverlayHost()
                     .environment(appEnvironment.coordinator)
@@ -30,6 +30,18 @@ struct AppRoot: View {
                 guard phase == .active else { return }
                 startPendingCaptureIfNeeded()
             }
+    }
+
+    /// Запертое приложение показывает только замок: содержимое не должно
+    /// мелькнуть на экране до проверки.
+    @ViewBuilder
+    private var content: some View {
+        if appEnvironment.appLock.isLocked {
+            LockScreenView()
+                .environment(appEnvironment.appLock)
+        } else {
+            RootView()
+        }
     }
 
     /// Окно поверх нужно, пока идёт запись, висит ошибка или баннер отмены.

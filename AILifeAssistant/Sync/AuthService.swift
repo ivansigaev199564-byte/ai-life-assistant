@@ -34,7 +34,7 @@ final class AuthService: NSObject {
     /// Служба в Keychain, под которой хранится сессия.
     private static let keychainService = "com.ivans.ailifeassistant.session"
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = PrivateSession.shared) {
         self.session = session
         super.init()
         restoreSession()
@@ -117,10 +117,11 @@ extension AuthService: ASAuthorizationControllerDelegate {
             signInContinuation = continuation
 
             let request = ASAuthorizationAppleIDProvider().createRequest()
-            // Имя и почта запрашиваются один раз при первом входе.
-            // Приложению они не нужны для работы, но без запроса Apple
-            // не отдаст даже стабильный идентификатор пользователя.
-            request.requestedScopes = [.fullName, .email]
+            // Ничего лишнего: стабильный идентификатор пользователя Apple
+            // отдаёт и без запроса имени с почтой, а собирать данные,
+            // которые приложению не нужны, значит обещать одно и делать
+            // другое.
+            request.requestedScopes = []
 
             let controller = ASAuthorizationController(authorizationRequests: [request])
             controller.delegate = self
