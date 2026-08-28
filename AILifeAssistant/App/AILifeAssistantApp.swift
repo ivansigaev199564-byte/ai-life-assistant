@@ -40,6 +40,8 @@ struct AILifeAssistantApp: App {
                     .environment(environment.notificationRouter)
                     .environment(environment.appLock)
                     .environment(environment.deletionService)
+                    .environment(environment.auth)
+                    .environment(environment.syncEngine)
                     .environment(\.capabilities, environment.capabilities)
                     .modelContainer(environment.container)
             }
