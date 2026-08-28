@@ -154,21 +154,27 @@ struct SearchView: View {
         }
     }
 
-    /// Захват открывается целиком: у него есть экран с разбором. Остальные
-    /// типы показываются карточкой без перехода, отдельных экранов у них нет.
+    /// Всё, что можно открыть, открывается.
+    ///
+    /// У задачи, напоминания и траты своего экрана нет, но есть запись,
+    /// из которой они появились. Раньше такие строки просто не нажимались,
+    /// и человек упирался в тупик посреди выдачи.
     @ViewBuilder
     private func resultRow(_ result: SearchResult) -> some View {
-        if result.kind == .capture {
+        if let identifier = result.kind == .capture ? result.id : result.sourceID {
             Button {
                 // Запись достаётся по идентификатору в момент нажатия,
                 // а не ищется в поднятой в память таблице при отрисовке.
-                openedCapture = capture(with: result.id)
+                openedCapture = capture(with: identifier)
             } label: {
                 resultCard(result)
             }
             .buttonStyle(.plain)
         } else {
             resultCard(result)
+                // Карточка без перехода выглядит как нажимаемая, поэтому
+                // она хотя бы честно приглушена.
+                .opacity(0.85)
         }
     }
 

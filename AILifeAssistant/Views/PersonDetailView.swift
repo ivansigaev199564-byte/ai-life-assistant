@@ -9,11 +9,19 @@ import SwiftUI
 struct PersonDetailView: View {
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    @Environment(DeletionService.self) private var deletion: DeletionService?
 
     let person: Person
 
+    /// Все люди: нужны для объединения дублей, которые приложение
+    /// заводит само из речи.
+    @Query(sort: \Person.name) private var people: [Person]
+
     @State private var isEditingName = false
     @State private var draftName = ""
+    @State private var isConfirmingDelete = false
+    @State private var isChoosingMerge = false
 
     var body: some View {
         ScrollView {
@@ -64,14 +72,56 @@ struct PersonDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    draftName = person.name
-                    isEditingName = true
+                Menu {
+                    Button {
+                        draftName = person.name
+                        isEditingName = true
+                    } label: {
+                        Label("Переименовать", systemImage: "pencil")
+                    }
+
+                    // Карточки заводятся автоматически из речи, поэтому
+                    // дубли неизбежны: «Миша» и «Михаил» это один человек.
+                    if mergeCandidates.count > 0 {
+                        Button {
+                            isChoosingMerge = true
+                        } label: {
+                            Label("Объединить с…", systemImage: "arrow.triangle.merge")
+                        }
+                    }
+
+                    Button(role: .destructive) {
+                        isConfirmingDelete = true
+                    } label: {
+                        Label("Удалить", systemImage: "trash")
+                    }
                 } label: {
-                    Image(systemName: "pencil")
+                    Image(systemName: "ellipsis.circle")
                 }
-                .accessibilityLabel("Переименовать")
+                .accessibilityLabel("Действия с человеком")
             }
+        }
+        .confirmationDialog(
+            "Удалить человека?",
+            isPresented: $isConfirmingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Удалить", role: .destructive) { deletePerson() }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("Записи останутся на месте, исчезнет только карточка и связи с ней.")
+        }
+        .confirmationDialog(
+            "С кем объединить?",
+            isPresented: $isChoosingMerge,
+            titleVisibility: .visible
+        ) {
+            ForEach(mergeCandidates) { candidate in
+                Button(candidate.name) { merge(into: candidate) }
+            }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("Записи и упоминания перейдут выбранному человеку, а это имя останется у него синонимом.")
         }
         .alert("Имя человека", isPresented: $isEditingName) {
             TextField("Имя", text: $draftName)
@@ -169,6 +219,56 @@ struct PersonDetailView: View {
 
     /// Прежнее написание уходит в синонимы: иначе старые записи перестанут
     /// находиться, а разбор заведёт нового человека при следующем упоминании.
+    /// Кого предлагать для объединения: все, кроме самого себя.
+    private var mergeCandidates: [Person] {
+        people.filter { $0.id != person.id }
+    }
+
+    private func deletePerson() {
+        if let deletion {
+            deletion.delete(person)
+        } else {
+            modelContext.delete(person)
+            try? modelContext.save()
+        }
+        dismiss()
+    }
+
+    /// Переносит записи этого человека выбранному и удаляет дубль.
+    ///
+    /// Имя уходит в синонимы: иначе следующая фраза с тем же словом
+    /// заведёт дубль заново.
+    private func merge(into target: Person) {
+        for reminder in person.reminders where !target.reminders.contains(where: { $0.id == reminder.id }) {
+            target.reminders.append(reminder)
+        }
+        for task in person.tasks where !target.tasks.contains(where: { $0.id == task.id }) {
+            target.tasks.append(task)
+        }
+        for expense in person.expenses where !target.expenses.contains(where: { $0.id == expense.id }) {
+            target.expenses.append(expense)
+        }
+        for note in person.notes where !target.notes.contains(where: { $0.id == note.id }) {
+            target.notes.append(note)
+        }
+
+        for alias in person.aliases + [person.name] where !target.aliases.contains(alias) {
+            target.aliases.append(alias)
+        }
+
+        target.updatedAt = .now
+        target.syncState = .pendingUpload
+
+        if let deletion {
+            deletion.delete(person)
+        } else {
+            modelContext.delete(person)
+            try? modelContext.save()
+        }
+
+        dismiss()
+    }
+
     private func renamePerson() {
         let name = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard name.count >= 2, name != person.name else { return }

@@ -96,6 +96,12 @@ struct ProjectDetailView: View {
             TextField("Название", text: $draftName)
             Button("Отмена", role: .cancel) {}
             Button("Сохранить") { rename() }
+                // Кнопка была активна всегда, и на коротком имени
+                // сохранение молча не срабатывало: человек видел, что
+                // алерт закрылся, и считал, что переименовал.
+                .disabled(draftName.trimmingCharacters(in: .whitespacesAndNewlines).count < 2)
+        } message: {
+            Text("Не короче двух символов. Прежнее название останется как синоним, чтобы старые записи не потерялись.")
         }
         .confirmationDialog(
             "Удалить проект?",

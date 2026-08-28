@@ -27,6 +27,7 @@ struct RootView: View {
     @State private var isShowingContext = false
     @State private var isShowingTextInput = false
     @State private var draftText = ""
+    @State private var isConfirmingDraftDiscard = false
 
     /// Записи, которые приложение поняло неуверенно.
     ///
@@ -300,7 +301,13 @@ struct RootView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Отмена") { isShowingTextInput = false }
+                    Button("Отмена") {
+                        if draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            isShowingTextInput = false
+                        } else {
+                            isConfirmingDraftDiscard = true
+                        }
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Сохранить") {
@@ -314,6 +321,20 @@ struct RootView: View {
             }
         }
         .presentationDetents([.medium, .large])
+        // Свайп вниз стирал набранный текст молча. Пока черновик не пуст,
+        // лист закрывается только через кнопку, и та переспрашивает.
+        .interactiveDismissDisabled(!draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .confirmationDialog(
+            "Удалить черновик?",
+            isPresented: $isConfirmingDraftDiscard,
+            titleVisibility: .visible
+        ) {
+            Button("Удалить", role: .destructive) {
+                draftText = ""
+                isShowingTextInput = false
+            }
+            Button("Продолжить писать", role: .cancel) {}
+        }
     }
 }
 

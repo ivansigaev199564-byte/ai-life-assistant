@@ -146,6 +146,7 @@ final class SearchService {
                 title: $0.displayTitle,
                 snippet: Self.snippet($0.body),
                 occurredAt: $0.createdAt,
+                sourceID: $0.source?.id,
                 origin: .local,
                 score: Self.localScore(text: $0.displayTitle + " " + $0.body, query: query)
             )
@@ -166,6 +167,7 @@ final class SearchService {
                 title: $0.title,
                 snippet: Self.snippet($0.details),
                 occurredAt: $0.createdAt,
+                sourceID: $0.source?.id,
                 origin: .local,
                 score: Self.localScore(text: $0.title, query: query)
             )
@@ -186,6 +188,7 @@ final class SearchService {
                 title: $0.title,
                 snippet: Self.snippet($0.details),
                 occurredAt: $0.fireDate,
+                sourceID: $0.source?.id,
                 origin: .local,
                 score: Self.localScore(text: $0.title, query: query)
             )
@@ -207,6 +210,7 @@ final class SearchService {
                 title: $0.details.isEmpty ? $0.category.displayName : $0.details,
                 snippet: $0.formattedAmount,
                 occurredAt: $0.spentAt,
+                sourceID: $0.source?.id,
                 origin: .local,
                 score: Self.localScore(text: $0.details, query: query)
             )

@@ -22,6 +22,11 @@ struct SearchResult: Identifiable, Equatable, Sendable {
     let title: String
     let snippet: String
     let occurredAt: Date
+
+    /// Запись, из которой сущность появилась. По ней открывается карточка:
+    /// у задач, напоминаний и трат своих экранов нет, и раньше их строки
+    /// в выдаче просто не нажимались.
+    var sourceID: UUID?
     let origin: Origin
     /// Оценка релевантности. Сравнима только внутри одного источника.
     let score: Double
@@ -36,6 +41,11 @@ struct RemoteSearchResponse: Decodable {
         let title: String
         let snippet: String
         let occurredAt: Date
+
+    /// Запись, из которой сущность появилась. По ней открывается карточка:
+    /// у задач, напоминаний и трат своих экранов нет, и раньше их строки
+    /// в выдаче просто не нажимались.
+    var sourceID: UUID?
         let score: Double
 
         enum CodingKeys: String, CodingKey {
