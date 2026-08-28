@@ -79,7 +79,10 @@ final class NotificationService {
 
         // Прошедшее время не планируем: система молча отбросит такой запрос,
         // а в базе останется идентификатор несуществующего уведомления.
-        guard reminder.fireDate > .now else {
+        // Повторяющееся напоминание исключение: «каждый день в 8:30»,
+        // поставленное в десять утра, должно сработать завтра.
+        let recurrence = Self.recurringComponents(for: reminder)
+        guard recurrence != nil || reminder.fireDate > .now else {
             Log.data.debug("Напоминание в прошлом, уведомление не ставится")
             return nil
         }
@@ -102,11 +105,16 @@ final class NotificationService {
             content.interruptionLevel = .timeSensitive
         }
 
-        let components = Calendar.current.dateComponents(
-            [.year, .month, .day, .hour, .minute],
-            from: reminder.fireDate
-        )
-        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+        let trigger: UNCalendarNotificationTrigger
+        if let recurrence {
+            trigger = UNCalendarNotificationTrigger(dateMatching: recurrence, repeats: true)
+        } else {
+            let components = Calendar.current.dateComponents(
+                [.year, .month, .day, .hour, .minute],
+                from: reminder.fireDate
+            )
+            trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+        }
 
         let request = UNNotificationRequest(
             identifier: identifier,
@@ -122,6 +130,60 @@ final class NotificationService {
         } catch {
             Log.data.error("Уведомление не запланировано: \(error.localizedDescription)")
             return nil
+        }
+    }
+
+    // MARK: Повторение
+
+    /// Компоненты повторяющегося срабатывания или nil, если напоминание
+    /// разовое.
+    ///
+    /// Правило приходит строкой из разбора: "daily", "weekly:mon",
+    /// "monthly", "weekdays". Последние два вида недельных правил система
+    /// одним триггером не выражает, поэтому «по будням» и «по выходным»
+    /// пока остаются разовыми, а не превращаются в неверное «каждый день».
+    static func recurringComponents(for reminder: Reminder) -> DateComponents? {
+        guard let rule = reminder.recurrenceRule, !reminder.isCompleted else { return nil }
+
+        let calendar = Calendar.current
+        let time = calendar.dateComponents([.hour, .minute], from: reminder.fireDate)
+
+        var components = DateComponents()
+        components.hour = time.hour
+        components.minute = time.minute
+
+        let parts = rule.split(separator: ":", maxSplits: 1).map(String.init)
+
+        switch parts.first {
+        case "daily":
+            return components
+
+        case "weekly":
+            components.weekday = parts.count > 1
+                ? weekdayNumber(for: parts[1])
+                : calendar.component(.weekday, from: reminder.fireDate)
+            return components.weekday == nil ? nil : components
+
+        case "monthly":
+            components.day = calendar.component(.day, from: reminder.fireDate)
+            return components
+
+        default:
+            return nil
+        }
+    }
+
+    /// Номер дня недели в календаре Apple: воскресенье это 1.
+    private static func weekdayNumber(for code: String) -> Int? {
+        switch code {
+        case "sun": return 1
+        case "mon": return 2
+        case "tue": return 3
+        case "wed": return 4
+        case "thu": return 5
+        case "fri": return 6
+        case "sat": return 7
+        default: return nil
         }
     }
 
@@ -144,7 +206,10 @@ final class NotificationService {
         let pending = await center.pendingNotificationRequests()
         let known = Set(pending.map(\.identifier))
 
-        for reminder in reminders where !reminder.isCompleted && reminder.fireDate > .now {
+        // Повторяющиеся попадают сюда независимо от даты: их «время»
+        // осталось в прошлом ровно один раз, а срабатывать они должны и дальше.
+        for reminder in reminders
+        where !reminder.isCompleted && (reminder.fireDate > .now || reminder.recurrenceRule != nil) {
             let identifier = Self.identifierPrefix + reminder.id.uuidString
             guard !known.contains(identifier) else { continue }
 
