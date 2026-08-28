@@ -70,7 +70,16 @@ final class CaptureCoordinator {
     private var recordingURL: URL?
     private var startedAt: TimeInterval?
     private var finishReason: SpeechFinishReason = .manual
-    private var isStopping = false
+    private var isFinishing = false
+
+    /// Номер текущей сессии.
+    ///
+    /// Запуск асинхронный и подолгу висит на разрешениях и загрузке модели.
+    /// Без этого номера остановка сносила ещё не созданную сессию, а старт
+    /// потом спокойно доезжал до конца и включал микрофон уже после того,
+    /// как человек всё отменил: индикатор записи горел, а на экране не было
+    /// ничего.
+    private var sessionGeneration = 0
 
     /// Итоговый текст, пришедший из движка.
     private var finalText: String?
@@ -137,12 +146,16 @@ final class CaptureCoordinator {
         finalConfidence = 0
         finalLanguage = nil
         finishReason = .manual
-        isStopping = false
+        isFinishing = false
         detector = VoiceActivityDetector(configuration: settings.vadConfiguration)
+
+        sessionGeneration += 1
+        let generation = sessionGeneration
 
         permissions.refresh()
         if !permissions.isReadyForCapture {
             let granted = await permissions.requestAll()
+            guard generation == sessionGeneration else { return }
             guard granted else {
                 fail(with: permissions.blockingError ?? .microphonePermissionDenied)
                 return
@@ -150,24 +163,47 @@ final class CaptureCoordinator {
         }
 
         do {
-            try await beginSession()
+            try await beginSession(generation: generation)
         } catch let error as AppError {
+            guard generation == sessionGeneration else { return }
             fail(with: error)
         } catch {
+            guard generation == sessionGeneration else { return }
             fail(with: .audioEngineFailed(underlying: error.localizedDescription))
         }
     }
 
     /// Останавливает запись и сохраняет результат.
     func stop(reason: SpeechFinishReason = .manual) async {
-        guard phase == .listening || phase == .preparing else { return }
-        guard !isStopping else { return }
-        isStopping = true
-        finishReason = reason
-        phase = .finalizing
+        await finish(saving: true, reason: reason)
+    }
 
-        if settings.hapticsEnabled, reason == .manual {
-            haptics.captureStopped()
+    /// Прерывает запись без сохранения и удаляет аудиофайл.
+    func cancel() async {
+        await finish(saving: false, reason: .manual)
+    }
+
+    /// Единственный путь завершения сессии.
+    ///
+    /// Раньше остановка и отмена жили порознь, и отмена не проверяла флаг
+    /// остановки. Нажатие «Отменить» в момент финализации успевало снести
+    /// движок и рекордер, после чего остановка всё равно доходила
+    /// до сохранения: отменённая запись могла оказаться в ленте.
+    private func finish(saving: Bool, reason: SpeechFinishReason) async {
+        guard phase.isActive else { return }
+        guard !isFinishing else { return }
+
+        isFinishing = true
+        finishReason = reason
+
+        // Всё, что ещё летит в запуске, с этого момента устарело.
+        sessionGeneration += 1
+
+        if saving {
+            phase = .finalizing
+            if settings.hapticsEnabled, reason == .manual {
+                haptics.captureStopped()
+            }
         }
 
         tickerTask?.cancel()
@@ -175,53 +211,40 @@ final class CaptureCoordinator {
         liveActivity?.stop()
 
         let recording = recorder?.stop()
+        if !saving { recorder?.discardRecording() }
         recorder = nil
+
+        if saving {
+            // Файловым движкам запись передаётся здесь, потоковые просто
+            // закрывают поток.
+            await engine?.finishSession(audioFileURL: recording?.fileURL)
+            await eventsTask?.value
+        } else {
+            eventsTask?.cancel()
+            await engine?.cancelSession()
+        }
+
+        eventsTask = nil
         sessionManager.deactivate()
 
-        // Файловым движкам запись передаётся здесь, потоковые просто закрывают поток.
-        await engine?.finishSession(audioFileURL: recording?.fileURL)
-
-        // Ждём, пока обработчик событий примет финальный текст и завершится.
-        await eventsTask?.value
-        eventsTask = nil
-
-        let didSave = await persistResult(duration: recording?.duration ?? elapsed)
+        var didSave = false
+        if saving {
+            didSave = await persistResult(duration: recording?.duration ?? elapsed)
+        }
 
         engine = nil
-        isStopping = false
+        isFinishing = false
 
-        // Фазу сбрасываем только при успехе: иначе затрём сообщение об ошибке,
-        // которое пользователь ещё не увидел.
-        if didSave {
+        if saving {
+            // Фазу сбрасываем только при успехе: иначе затрём сообщение
+            // об ошибке, которое пользователь ещё не увидел.
+            if didSave { phase = .idle }
+        } else {
+            liveTranscript = ""
+            audioLevel = 0
+            elapsed = 0
             phase = .idle
         }
-    }
-
-    /// Прерывает запись без сохранения и удаляет аудиофайл.
-    func cancel() async {
-        guard phase.isActive else { return }
-        isStopping = true
-
-        tickerTask?.cancel()
-        tickerTask = nil
-        eventsTask?.cancel()
-        eventsTask = nil
-        liveActivity?.stop()
-
-        recorder?.stop()
-        recorder?.discardRecording()
-        recorder = nil
-
-        await engine?.cancelSession()
-        engine = nil
-
-        sessionManager.deactivate()
-
-        liveTranscript = ""
-        audioLevel = 0
-        elapsed = 0
-        isStopping = false
-        phase = .idle
     }
 
     /// Убирает сообщение об ошибке.
@@ -268,17 +291,35 @@ final class CaptureCoordinator {
 private extension CaptureCoordinator {
 
     /// Поднимает аудиосессию, движок распознавания и рекордер.
-    func beginSession() async throws {
+    ///
+    /// После каждого ожидания проверяется, не устарела ли сессия: человек
+    /// мог передумать, пока качалась модель или пока система спрашивала
+    /// разрешение. Устаревший запуск обязан свернуть за собой всё, что
+    /// успел создать, и не трогать состояние экрана.
+    func beginSession(generation: Int) async throws {
         let engine = SpeechEngineFactory.make(preference: settings.enginePreference)
         self.engine = engine
 
         // Модель WhisperKit должна быть загружена до старта записи,
         // иначе первые секунды речи уйдут в пустоту.
         try await engine.prepare()
+        guard generation == sessionGeneration else {
+            await engine.cancelSession()
+            self.engine = nil
+            return
+        }
 
         try sessionManager.activateForRecording()
+        applyRoutePreset()
 
         let stream = try await engine.beginSession(locale: settings.resolvedLocale)
+        guard generation == sessionGeneration else {
+            await engine.cancelSession()
+            sessionManager.deactivate()
+            self.engine = nil
+            return
+        }
+
         observe(stream: stream)
 
         // Файл нужен файловым движкам всегда, остальным только если
@@ -308,6 +349,15 @@ private extension CaptureCoordinator {
             throw error
         }
 
+        guard generation == sessionGeneration else {
+            recorder.stop()
+            recorder.discardRecording()
+            await engine.cancelSession()
+            sessionManager.deactivate()
+            self.engine = nil
+            return
+        }
+
         self.recorder = recorder
         startedAt = ProcessInfo.processInfo.systemUptime
         lastActivityUpdate = 0
@@ -323,6 +373,24 @@ private extension CaptureCoordinator {
             Захват начат: источник \(self.captureSource.rawValue, privacy: .public), \
             движок \(engine.kind.rawValue, privacy: .public)
             """)
+    }
+
+    /// Подстраивает детектор под текущий маршрут звука.
+    ///
+    /// Bluetooth-гарнитура в профиле HFP отдаёт сигнал заметно тише
+    /// встроенного микрофона, а режим .measurement отключает системную
+    /// обработку. С общими порогами запись через AirPods обрывалась через
+    /// четыре секунды с «речь не распознана», хотя человек говорил.
+    func applyRoutePreset() {
+        guard sessionManager.isUsingBluetoothInput else { return }
+
+        var configuration = settings.vadConfiguration
+        configuration.speechThreshold *= 0.4
+        configuration.silenceThreshold *= 0.4
+        configuration.leadingSilenceTimeout += 2
+
+        detector = VoiceActivityDetector(configuration: configuration)
+        Log.voice.notice("Запись через Bluetooth: пороги детектора понижены")
     }
 
     /// Подписка на текстовые события движка.
@@ -380,6 +448,15 @@ private extension CaptureCoordinator {
                 guard let self, let startedAt = self.startedAt else { return }
                 self.elapsed = ProcessInfo.processInfo.systemUptime - startedAt
 
+                // Потолок длительности держится здесь, а не только
+                // на аудиоколбэках: если поток буферов оборвался, детектор
+                // молчит, и сессия висела бы бесконечно с включённым
+                // микрофоном.
+                if self.elapsed >= self.settings.vadConfiguration.maximumDuration {
+                    await self.stop(reason: .maxDuration)
+                    return
+                }
+
                 // Остров обновляется раз в секунду: система ограничивает
                 // частоту и просто отбрасывает слишком частые запросы.
                 if self.elapsed - self.lastActivityUpdate >= 1 {
@@ -402,7 +479,42 @@ private extension CaptureCoordinator {
         let text = (finalText ?? liveTranscript).trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !text.isEmpty else {
-            // Пустая запись не имеет ценности: чистим файл и сообщаем причину.
+            // Текста нет, но звук может быть цел: распознавание Apple уходит
+            // на сервер, если языковая модель не скачана, и в метро задача
+            // просто не доезжает. Раньше в этом месте стиралось и то,
+            // и другое, то есть тридцать секунд надиктовки исчезали
+            // насовсем. Теперь запись остаётся, если человек хранит аудио.
+            if settings.keepAudioRecordings,
+               let recordingURL,
+               FileManager.default.fileExists(atPath: recordingURL.path) {
+
+                let capture = CaptureItem(
+                    id: captureID,
+                    text: "",
+                    status: .failed,
+                    source: captureSource,
+                    engine: engine?.kind ?? .none,
+                    languageCode: finalLanguage,
+                    audioDuration: duration,
+                    audioFileName: recordingURL.lastPathComponent
+                )
+                capture.failureReason = "Речь не распознана, запись голоса сохранена"
+
+                modelContext.insert(capture)
+                if save(context: "запись без расшифровки") {
+                    lastSavedCapture = capture
+                } else {
+                    modelContext.delete(capture)
+                }
+
+                self.recordingURL = nil
+                Log.voice.notice("Расшифровки нет, аудио сохранено")
+                phase = .failed(.emptyTranscription)
+                if settings.hapticsEnabled { haptics.captureFailed() }
+                return false
+            }
+
+            // Аудио не хранится: держать файл незачем.
             recorder?.discardRecording()
             if let recordingURL {
                 try? FileManager.default.removeItem(at: recordingURL)
