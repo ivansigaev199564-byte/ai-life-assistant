@@ -33,6 +33,13 @@ final class SyncEngine {
     private let networkMonitor: NetworkMonitor
     private let sessionProvider: () -> Session?
 
+    /// Как разговаривать с сервером.
+    ///
+    /// Замыкание, а не готовый объект: транспорт зависит от текущего токена,
+    /// который меняется при входе и обновлении сессии. В тестах сюда
+    /// подставляется фейк, и слой наконец стало возможно проверить.
+    private let transportProvider: (Session) -> SyncTransport?
+
     /// Кто мы для сервера. Токен без идентификатора бесполезен: колонка
     /// владельца на сервере обязательная.
     struct Session: Sendable {
@@ -43,19 +50,34 @@ final class SyncEngine {
     /// Ключ отметки последней синхронизации.
     private static let lastSyncKey = "sync.lastSyncedAt"
 
+    /// Настройки бэкенда. Раньше читались статически из Bundle, поэтому
+    /// в тестовом окружении всегда были пустыми, и любой тест на sync()
+    /// выходил на первой же проверке, ничего не проверив.
+    private let configuration: SupabaseConfiguration?
+
     init(
         modelContext: ModelContext,
         queue: SyncQueue,
         networkMonitor: NetworkMonitor,
-        sessionProvider: @escaping () -> Session?
+        sessionProvider: @escaping () -> Session?,
+        transportProvider: ((Session) -> SyncTransport?)? = nil,
+        configuration: SupabaseConfiguration? = SupabaseConfiguration.current
     ) {
         self.modelContext = modelContext
         self.queue = queue
         self.networkMonitor = networkMonitor
         self.sessionProvider = sessionProvider
+        self.configuration = configuration
+        self.transportProvider = transportProvider ?? { session in
+            guard let configuration else { return nil }
+            return SupabaseRESTClient(
+                configuration: configuration,
+                accessToken: session.accessToken
+            )
+        }
         self.lastSyncedAt = UserDefaults.standard.object(forKey: Self.lastSyncKey) as? Date
 
-        networkMonitor.onBecameOnline = { [weak self] in
+        networkMonitor.whenBecameOnline { [weak self] in
             guard let self else { return }
             // Прошлые неудачи были из-за отсутствия связи, а не из-за данных.
             self.queue.resetAttempts()
@@ -65,7 +87,8 @@ final class SyncEngine {
 
     /// Настроен ли бэкенд и есть ли сессия.
     var isReady: Bool {
-        SupabaseConfiguration.isConfigured && sessionProvider() != nil
+        guard let session = sessionProvider() else { return false }
+        return transportProvider(session) != nil
     }
 
     // MARK: Основной цикл
@@ -139,12 +162,9 @@ final class SyncEngine {
 
 private extension SyncEngine {
 
-    var client: SupabaseRESTClient? {
-        guard let configuration = SupabaseConfiguration.current else { return nil }
-        return SupabaseRESTClient(
-            configuration: configuration,
-            accessToken: sessionProvider()?.accessToken
-        )
+    var client: SyncTransport? {
+        guard let session = sessionProvider() else { return nil }
+        return transportProvider(session)
     }
 
     /// Отправляет локальные изменения пачками по типам сущностей.
@@ -202,7 +222,7 @@ private extension SyncEngine {
     func pushEntities(
         of entityType: SyncEntityType,
         ids: Set<UUID>,
-        using client: SupabaseRESTClient,
+        using client: SyncTransport,
         userID: UUID
     ) async throws {
         switch entityType {
@@ -339,7 +359,7 @@ private extension SyncEngine {
     func fetchAll<Payload: SyncPayload>(
         from table: String,
         since: Date?,
-        using client: SupabaseRESTClient,
+        using client: SyncTransport,
         pageSize: Int = 500
     ) async throws -> [Payload] {
         var collected: [Payload] = []

@@ -19,6 +19,7 @@ struct SettingsView: View {
     @Environment(EventKitService.self) private var eventKit: EventKitService?
     @Environment(NotificationService.self) private var notifications: NotificationService?
     @Environment(AppLock.self) private var appLock: AppLock?
+    @Environment(NetworkMonitor.self) private var network: NetworkMonitor?
 
     @State private var isPreparingWhisper = false
     @State private var whisperError: String?
@@ -38,7 +39,9 @@ struct SettingsView: View {
                     recognitionSection(settings: settings)
                     captureSection(settings: settings)
                     integrationsSection
+                    AccountSection()
                     securitySection
+                    examplesSection
                     deviceSection
                     dataSection
                 }
@@ -193,9 +196,17 @@ struct SettingsView: View {
                         .foregroundStyle(DS.Palette.danger)
                 }
 
-                Text("Модель весит несколько сотен мегабайт, качайте по Wi-Fi.")
+                // Предупреждение вместо запрета: решение всё равно за
+                // человеком, но платить за сотни мегабайт вслепую он
+                // не должен.
+                Text(network?.isExpensive == true
+                     ? "Сейчас сотовая сеть, а модель весит несколько сотен мегабайт."
+                     : "Модель весит несколько сотен мегабайт, качайте по Wi-Fi.")
                     .font(DS.Font.micro)
-                    .foregroundStyle(DS.Palette.textTertiary)
+                    .foregroundStyle(network?.isExpensive == true
+                                     ? DS.Palette.warning
+                                     : DS.Palette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -428,6 +439,33 @@ struct SettingsView: View {
                 .foregroundStyle(available ? DS.Palette.success : DS.Palette.textTertiary)
         }
     }
+
+    // MARK: Что можно сказать
+
+    /// Примеры фраз были видны один раз при первом запуске и больше
+    /// никогда: человек, забывший формулировку, найти её не мог.
+    private var examplesSection: some View {
+        section("Что можно сказать") {
+            ForEach(Self.examples, id: \.self) { example in
+                Text("«" + example + "»")
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text("Можно сказать несколько дел подряд одной фразой: приложение разложит их по отдельности.")
+                .font(DS.Font.micro)
+                .foregroundStyle(DS.Palette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private static let examples = [
+        "купил кофе за 300",
+        "напомни завтра в девять позвонить в банк",
+        "нужно забрать посылку",
+        "каждый день в полдевятого пить витамины"
+    ]
 
     // MARK: Данные
 

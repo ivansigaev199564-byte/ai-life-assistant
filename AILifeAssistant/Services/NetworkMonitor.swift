@@ -20,8 +20,15 @@ final class NetworkMonitor {
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "network.monitor")
 
-    /// Вызывается, когда связь появилась после перерыва.
-    var onBecameOnline: (() -> Void)?
+    /// Кого разбудить, когда связь появилась после перерыва.
+    ///
+    /// Список, а не одно замыкание: подписчиков двое, синхронизация
+    /// и очередь разбора, и раньше второй просто затирал первого.
+    private var onlineHandlers: [() -> Void] = []
+
+    func whenBecameOnline(_ handler: @escaping () -> Void) {
+        onlineHandlers.append(handler)
+    }
 
     init() {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -33,8 +40,8 @@ final class NetworkMonitor {
                 self.isExpensive = path.isExpensive
 
                 if wasOffline, self.isOnline {
-                    Log.data.notice("Связь восстановлена, возобновляю синхронизацию")
-                    self.onBecameOnline?()
+                    Log.data.notice("Связь восстановлена, возобновляю отложенное")
+                    self.onlineHandlers.forEach { $0() }
                 }
             }
         }

@@ -62,8 +62,14 @@ enum MerchantExtractor {
     }
 
     private static func isKnownChain(_ word: String) -> Bool {
-        let normalized = IntentKeywords.normalize(word)
-        return chainRoots.keys.contains { normalized.hasPrefix($0) }
+        isKnownPlace(IntentKeywords.normalize(word))
+    }
+
+    /// Известная сеть или город: нужно и здесь, и извлечению людей,
+    /// которое иначе заводит карточку на «Пятёрочку».
+    static func isKnownPlace(_ normalized: String) -> Bool {
+        if chainRoots.keys.contains(where: { normalized.hasPrefix($0) }) { return true }
+        return cities.contains(normalized)
     }
 
     /// Корень названия и его именительный падеж.

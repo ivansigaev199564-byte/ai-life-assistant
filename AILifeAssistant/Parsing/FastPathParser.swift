@@ -118,10 +118,22 @@ struct FastPathParser: IntentParsing {
         let date = DateExtractor.extract(from: cleaned, context: context)
         let people = PersonExtractor.extract(from: cleaned, context: context)
 
-        let hasExpenseMarker = IntentKeywords.contains(cleaned, any: IntentKeywords.expense)
-        let hasReminderMarker = IntentKeywords.contains(cleaned, any: IntentKeywords.reminder)
-        let hasTaskMarker = IntentKeywords.contains(cleaned, any: IntentKeywords.task)
-        let priority = IntentKeywords.priority(in: cleaned)
+        // Маркеры отбираются под язык фразы: в русской речи английские
+        // словари только мешают, и наоборот.
+        let language = context.languageCode
+        let hasExpenseMarker = IntentKeywords.contains(
+            cleaned,
+            any: IntentKeywords.markers(IntentKeywords.expense, language: language)
+        )
+        let hasReminderMarker = IntentKeywords.contains(
+            cleaned,
+            any: IntentKeywords.markers(IntentKeywords.reminder, language: language)
+        )
+        let hasTaskMarker = IntentKeywords.contains(
+            cleaned,
+            any: IntentKeywords.markers(IntentKeywords.task, language: language)
+        )
+        let priority = IntentKeywords.priority(in: cleaned, language: language)
 
         // Порядок проверок важен. Просьба напомнить перебивает всё:
         // в «напомни в девять» число это время, а не сумма, и без этого
@@ -251,7 +263,11 @@ struct FastPathParser: IntentParsing {
 
         return ParsedItem(
             kind: .reminder,
-            title: cleanTitle(text, removing: IntentKeywords.reminder + (date.map { [$0.matchedText] } ?? [])),
+            title: cleanTitle(
+                text,
+                removing: IntentKeywords.markers(IntentKeywords.reminder, language: context.languageCode)
+                    + (date.map { [$0.matchedText] } ?? [])
+            ),
             details: details,
             dueDate: fireDate,
             priority: priority,
@@ -279,7 +295,10 @@ struct FastPathParser: IntentParsing {
             kind: .task,
             // Убираем только служебные слова: глагол действия это и есть
             // задача, без него в списке дел остаётся «Посылку» и «Ване».
-            title: cleanTitle(text, removing: IntentKeywords.taskFillers),
+            title: cleanTitle(
+                text,
+                removing: IntentKeywords.markers(IntentKeywords.taskFillers, language: context.languageCode)
+            ),
             dueDate: date?.date,
             priority: priority,
             people: people,

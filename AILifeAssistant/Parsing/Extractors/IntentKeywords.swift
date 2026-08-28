@@ -121,6 +121,31 @@ enum IntentKeywords {
 
     // MARK: Проверки
 
+    // MARK: Язык
+
+    /// Отбирает маркеры под язык фразы.
+    ///
+    /// Словари двуязычные и до сих пор работали одним списком: в русской
+    /// фразе искались и английские маркеры тоже. Короткие английские слова
+    /// («at», «in», «buy», «cost») находятся внутри латинских кусков
+    /// русской речи, названий и брендов, и уводили разбор не туда.
+    ///
+    /// Язык неизвестен: возвращаем всё. Это честнее, чем угадывать.
+    static func markers(_ markers: [String], language: String?) -> [String] {
+        guard let language else { return markers }
+
+        let wantsRussian = language.hasPrefix("ru")
+        return markers.filter { isLatin($0) != wantsRussian }
+    }
+
+    /// Маркер записан латиницей.
+    private static func isLatin(_ marker: String) -> Bool {
+        marker.unicodeScalars.contains { CharacterSet.letters.contains($0) }
+            && !marker.unicodeScalars.contains { scalar in
+                scalar.value >= 0x0400 && scalar.value <= 0x04FF
+            }
+    }
+
     /// Нормализация для поиска: нижний регистр, «ё» приводится к «е»,
     /// иначе «счёт» и «счет» считаются разными словами.
     static func normalize(_ text: String) -> String {
@@ -190,9 +215,9 @@ enum IntentKeywords {
     /// Низкий проверяется первым: «срочно» это часть «не срочно», и при
     /// обратном порядке фраза «это не срочно» получала высокий приоритет,
     /// то есть ровно противоположный сказанному.
-    static func priority(in text: String) -> Priority {
-        if contains(text, any: lowPriority) { return .low }
-        if contains(text, any: highPriority) { return .high }
+    static func priority(in text: String, language: String? = nil) -> Priority {
+        if contains(text, any: markers(lowPriority, language: language)) { return .low }
+        if contains(text, any: markers(highPriority, language: language)) { return .high }
         return .none
     }
 }

@@ -103,6 +103,15 @@ struct StatsView: View {
                 Text("в среднем " + dailyAverage.formatted(.currency(code: currencyCode)) + " в день")
                     .font(DS.Font.caption)
                     .foregroundStyle(DS.Palette.textSecondary)
+
+                // Траты в других валютах молча выпадали из итога: человек
+                // видел сумму меньше настоящей и не понимал почему.
+                if otherCurrencyCount > 0 {
+                    Text(otherCurrencyNote)
+                        .font(DS.Font.micro)
+                        .foregroundStyle(DS.Palette.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
@@ -220,6 +229,17 @@ struct StatsView: View {
 
     private var total: Decimal {
         sameCurrency.reduce(into: Decimal(0)) { $0 += $1.amount }
+    }
+
+    /// Сколько трат не попало в итог из-за другой валюты.
+    private var otherCurrencyCount: Int {
+        filtered.count - sameCurrency.count
+    }
+
+    private var otherCurrencyNote: String {
+        let codes = Set(filtered.map(\.currencyCode)).subtracting([currencyCode]).sorted()
+        let list = codes.joined(separator: ", ")
+        return "Ещё \(otherCurrencyCount) трат в другой валюте (\(list)) в итог не входят."
     }
 
     private var dailyAverage: Decimal {

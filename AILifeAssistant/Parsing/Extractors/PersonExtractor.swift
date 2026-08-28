@@ -85,9 +85,32 @@ enum PersonExtractor {
     private static func isPlausibleName(_ word: String) -> Bool {
         guard word.count >= 2, word.count <= 30 else { return false }
         guard !stopWords.contains(word.lowercased()) else { return false }
+
+        // Магазины и города пишутся с заглавной ровно так же, как имена,
+        // и системный разметчик уверенно называет их людьми: «взял кофе
+        // в Пятёрочке» заводило человека по имени Пятёрочка, и такие
+        // карточки копились сами собой.
+        guard !isPlace(word) else { return false }
+
         // Имя состоит из букв и, возможно, дефиса: «Жан-Поль».
         return word.allSatisfy { $0.isLetter || $0 == "-" }
     }
+
+    /// Слово это место, а не человек.
+    static func isPlace(_ word: String) -> Bool {
+        let normalized = IntentKeywords.normalize(word)
+
+        if MerchantExtractor.isKnownPlace(normalized) { return true }
+        return placeRoots.contains { normalized.hasPrefix($0) }
+    }
+
+    /// Корни городов и стран: падежи речь меняет, корень остаётся.
+    private static let placeRoots = [
+        "москв", "питер", "петербург", "спб", "казан", "сочи", "новосибирск",
+        "екатеринбург", "тбилиси", "ереван", "стамбул", "дуба", "белград",
+        "лиссабон", "берлин", "лондон", "париж", "амстердам", "тайланд",
+        "таиланд", "турци", "росси", "грузи", "армени", "сербии", "сербия"
+    ]
 
     // MARK: Сопоставление с известными
 
