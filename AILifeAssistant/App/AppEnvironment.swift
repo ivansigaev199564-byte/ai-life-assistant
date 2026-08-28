@@ -32,6 +32,9 @@ final class AppEnvironment {
     let eventKit: EventKitService
     let reminderMirror: ReminderMirror
     let undoService: UndoService
+    let completionService: CompletionService
+    let liveActivity: LiveActivityController
+    let notificationRouter: NotificationRouter
 
     private init() {
         let container: ModelContainer
@@ -48,11 +51,17 @@ final class AppEnvironment {
         self.permissions = PermissionsManager()
         self.capabilities = .current
         self.recordingStore = RecordingStore()
+
+        let liveActivity = LiveActivityController()
+        self.liveActivity = liveActivity
+        self.notificationRouter = NotificationRouter()
+
         self.coordinator = CaptureCoordinator(
             modelContext: container.mainContext,
             permissions: permissions,
             settings: settings,
-            recordingStore: recordingStore
+            recordingStore: recordingStore,
+            liveActivity: liveActivity
         )
 
         // Облако выключено до появления функции-посредника: ключ модели
@@ -121,6 +130,18 @@ final class AppEnvironment {
         self.eventKit = eventKit
         self.reminderMirror = mirror
 
+        // Закрытие дела: один путь для всех экранов и виджета.
+        let completion = CompletionService(
+            modelContext: container.mainContext,
+            mirror: mirror,
+            settings: settings,
+            haptics: .shared
+        )
+        completion.onChanged = { entityType, id in
+            sync.markChanged(entityType, id: id)
+        }
+        self.completionService = completion
+
         // Разбор породил сущности: их нужно отправить на сервер
         // и превратить напоминания в реальные уведомления.
         processingQueue.onEntitiesMaterialized = { capture in
@@ -143,6 +164,10 @@ final class AppEnvironment {
             // в нём был сырой текст, теперь видно, что создано.
             undo.register(captureCreated: capture)
         }
+
+        // Делегат ставится сразу: нажатие на уведомление может быть тем самым
+        // событием, которое запустило приложение, и опоздать здесь нельзя.
+        notificationRouter.register()
 
         Log.capabilities.notice("Возможности устройства:\n\(self.capabilities.debugSummary, privacy: .public)")
     }
@@ -185,6 +210,7 @@ final class AppEnvironment {
         let settings: AppSettings
         let permissions: PermissionsManager
         let processingQueue: ProcessingQueue
+        let completionService: CompletionService
     }
 
     static func makeForTesting() -> Testing {
@@ -209,12 +235,20 @@ final class AppEnvironment {
             pipeline: ParsingPipeline()
         )
 
+        // Зеркалирование в тестах не поднимается: оно тянет за собой
+        // EventKit и системные уведомления, которых в тестовой среде нет.
+        let completion = CompletionService(
+            modelContext: container.mainContext,
+            settings: settings
+        )
+
         return Testing(
             container: container,
             coordinator: coordinator,
             settings: settings,
             permissions: permissions,
-            processingQueue: queue
+            processingQueue: queue,
+            completionService: completion
         )
     }
 }

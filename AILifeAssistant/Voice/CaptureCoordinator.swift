@@ -50,6 +50,8 @@ final class CaptureCoordinator {
     private let sessionManager: AudioSessionManager
     private let recordingStore: RecordingStore
     private let haptics: HapticEngine
+    /// Динамический остров. Отсутствует в тестах и на устройствах без него.
+    private let liveActivity: LiveActivityController?
 
     /// Вызывается после сохранения захвата. На Этапе 2 сюда подключится
     /// конвейер разбора, сейчас используется для обновления интерфейса.
@@ -75,6 +77,9 @@ final class CaptureCoordinator {
     private var finalConfidence: Double = 0
     private var finalLanguage: String?
 
+    /// Когда последний раз обновлялся Динамический остров.
+    private var lastActivityUpdate: TimeInterval = 0
+
     init(
         modelContext: ModelContext,
         permissions: PermissionsManager,
@@ -83,7 +88,8 @@ final class CaptureCoordinator {
         // изолированные объекты создаём внутри инициализатора, а не в сигнатуре.
         sessionManager: AudioSessionManager? = nil,
         recordingStore: RecordingStore = RecordingStore(),
-        haptics: HapticEngine? = nil
+        haptics: HapticEngine? = nil,
+        liveActivity: LiveActivityController? = nil
     ) {
         self.modelContext = modelContext
         self.permissions = permissions
@@ -91,6 +97,7 @@ final class CaptureCoordinator {
         self.sessionManager = sessionManager ?? AudioSessionManager()
         self.recordingStore = recordingStore
         self.haptics = haptics ?? .shared
+        self.liveActivity = liveActivity
         self.detector = VoiceActivityDetector(configuration: settings.vadConfiguration)
 
         self.sessionManager.onInterruption = { [weak self] interruption in
@@ -165,6 +172,7 @@ final class CaptureCoordinator {
 
         tickerTask?.cancel()
         tickerTask = nil
+        liveActivity?.stop()
 
         let recording = recorder?.stop()
         recorder = nil
@@ -198,6 +206,7 @@ final class CaptureCoordinator {
         tickerTask = nil
         eventsTask?.cancel()
         eventsTask = nil
+        liveActivity?.stop()
 
         recorder?.stop()
         recorder?.discardRecording()
@@ -212,6 +221,16 @@ final class CaptureCoordinator {
         audioLevel = 0
         elapsed = 0
         isStopping = false
+        phase = .idle
+    }
+
+    /// Убирает сообщение об ошибке.
+    ///
+    /// Ошибка записи это не состояние приложения, а событие: человек её
+    /// прочитал и хочет вернуться к делам, а не ждать следующей записи,
+    /// чтобы сообщение исчезло само.
+    func dismissError() {
+        guard case .failed = phase else { return }
         phase = .idle
     }
 
@@ -230,7 +249,14 @@ final class CaptureCoordinator {
             recognitionConfidence: 1
         )
         modelContext.insert(capture)
-        save(context: "текстовый захват")
+
+        // Несохранённый захват не существует: сообщать о нём разбору
+        // и синхронизации значит поставить в очередь запись, которой нет.
+        guard save(context: "текстовый захват") else {
+            modelContext.delete(capture)
+            return nil
+        }
+
         lastSavedCapture = capture
         onCaptureSaved?(capture)
         return capture
@@ -284,8 +310,14 @@ private extension CaptureCoordinator {
 
         self.recorder = recorder
         startedAt = ProcessInfo.processInfo.systemUptime
+        lastActivityUpdate = 0
         phase = .listening
         startTicker()
+
+        // Динамический остров: пользователь говорит, глядя на дорогу или
+        // на собеседника, и должен понимать периферийным зрением, что
+        // микрофон слышит.
+        liveActivity?.start()
 
         Log.voice.notice("""
             Захват начат: источник \(self.captureSource.rawValue, privacy: .public), \
@@ -347,6 +379,18 @@ private extension CaptureCoordinator {
                 try? await Task.sleep(for: .milliseconds(100))
                 guard let self, let startedAt = self.startedAt else { return }
                 self.elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+
+                // Остров обновляется раз в секунду: система ограничивает
+                // частоту и просто отбрасывает слишком частые запросы.
+                if self.elapsed - self.lastActivityUpdate >= 1 {
+                    self.lastActivityUpdate = self.elapsed
+                    self.liveActivity?.update(
+                        level: self.audioLevel,
+                        transcript: self.liveTranscript,
+                        isSpeaking: self.hasDetectedSpeech,
+                        elapsed: self.elapsed
+                    )
+                }
             }
         }
     }
@@ -395,7 +439,16 @@ private extension CaptureCoordinator {
         )
 
         modelContext.insert(capture)
-        save(context: "голосовой захват")
+
+        // Раньше сбой сохранения выдавался за успех: пользователь получал
+        // тактильное «сохранено», экран возвращался в покой, а записи
+        // не было. Теперь неудача остаётся неудачей.
+        guard save(context: "голосовой захват") else {
+            modelContext.delete(capture)
+            recordingURL = nil
+            if settings.hapticsEnabled { haptics.captureFailed() }
+            return false
+        }
 
         lastSavedCapture = capture
         liveTranscript = text
@@ -412,12 +465,16 @@ private extension CaptureCoordinator {
         return true
     }
 
-    func save(context: String) {
+    /// - Returns: удалось ли записать изменения на диск.
+    @discardableResult
+    func save(context: String) -> Bool {
         do {
             try modelContext.save()
+            return true
         } catch {
             Log.data.error("Не удалось сохранить \(context, privacy: .public): \(error.localizedDescription)")
             phase = .failed(.persistenceFailed(underlying: error.localizedDescription))
+            return false
         }
     }
 
@@ -425,6 +482,10 @@ private extension CaptureCoordinator {
         Log.voice.error("Захват прерван: \(error.localizedDescription)")
         phase = .failed(error)
         if settings.hapticsEnabled { haptics.captureFailed() }
+
+        tickerTask?.cancel()
+        tickerTask = nil
+        liveActivity?.stop()
 
         recorder?.stop()
         recorder?.discardRecording()

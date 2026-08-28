@@ -13,6 +13,12 @@ struct SettingsView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(PermissionsManager.self) private var permissions
 
+    /// Системные интеграции. Опциональны, чтобы предпросмотр обходился
+    /// без EventKit и центра уведомлений.
+    @Environment(ReminderMirror.self) private var reminderMirror: ReminderMirror?
+    @Environment(EventKitService.self) private var eventKit: EventKitService?
+    @Environment(NotificationService.self) private var notifications: NotificationService?
+
     @State private var isPreparingWhisper = false
     @State private var whisperError: String?
     @State private var recordingsSize: Int64 = 0
@@ -30,6 +36,7 @@ struct SettingsView: View {
                     permissionsSection
                     recognitionSection(settings: settings)
                     captureSection(settings: settings)
+                    integrationsSection
                     deviceSection
                     dataSection
                 }
@@ -239,6 +246,118 @@ struct SettingsView: View {
                     .foregroundStyle(DS.Palette.textTertiary)
             }
         }
+    }
+
+    // MARK: Интеграции
+
+    /// Напоминание, о котором телефон не напомнит, бесполезно. Поэтому обе
+    /// строки этой секции про одно и то же: дойдёт ли сказанное до системы.
+    private var integrationsSection: some View {
+        section("Интеграции") {
+            notificationRow
+
+            Divider().overlay(DS.Palette.border)
+
+            toggleRow(
+                "Дублировать в Напоминания",
+                hint: "Дела появятся в системном приложении Напоминания: на часах, в машине и на других устройствах. Закрытые там дела закроются и здесь.",
+                isOn: mirroringBinding
+            )
+
+            if reminderMirror?.isMirroringEnabled == true, eventKit?.remindersAccess == .denied {
+                Text("Доступ к Напоминаниям запрещён, дублировать некуда.")
+                    .font(DS.Font.micro)
+                    .foregroundStyle(DS.Palette.danger)
+
+                Button("Открыть системные настройки") {
+                    permissions.openSystemSettings()
+                }
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Palette.accent)
+            }
+
+            if let lastSyncAt = reminderMirror?.lastSyncAt {
+                Text("Последняя сверка: " + lastSyncAt.formatted(date: .omitted, time: .shortened))
+                    .font(DS.Font.micro)
+                    .foregroundStyle(DS.Palette.textTertiary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var notificationRow: some View {
+        HStack {
+            Text("Уведомления")
+                .font(DS.Font.caption)
+                .foregroundStyle(DS.Palette.textSecondary)
+            Spacer()
+            HStack(spacing: DS.Spacing.xxs) {
+                Circle()
+                    .fill(notificationsGranted ? DS.Palette.success : DS.Palette.danger)
+                    .frame(width: 6, height: 6)
+                Text(notificationStatusText)
+                    .font(DS.Font.caption)
+                    .foregroundStyle(DS.Palette.textPrimary)
+            }
+        }
+
+        if notifications?.permission == .notDetermined {
+            Button("Разрешить уведомления") {
+                Task { await notifications?.requestPermission() }
+            }
+            .font(DS.Font.caption)
+            .foregroundStyle(DS.Palette.accent)
+        } else if notifications?.permission == .denied {
+            // Без уведомлений напоминание превращается в запись в блокноте:
+            // приложение о нём знает, а человек нет.
+            Text("Без разрешения напоминания не прозвучат.")
+                .font(DS.Font.micro)
+                .foregroundStyle(DS.Palette.textTertiary)
+
+            Button("Открыть системные настройки") {
+                permissions.openSystemSettings()
+            }
+            .font(DS.Font.caption)
+            .foregroundStyle(DS.Palette.accent)
+        }
+    }
+
+    private var notificationsGranted: Bool {
+        notifications?.permission == .granted || notifications?.permission == .provisional
+    }
+
+    private var notificationStatusText: String {
+        guard let permission = notifications?.permission else { return "не запрошено" }
+
+        switch permission {
+        case .granted: return "разрешено"
+        case .provisional: return "без звука"
+        case .denied: return "запрещено"
+        case .notDetermined: return "не запрошено"
+        }
+    }
+
+    /// Включение зеркалирования это и есть повод спросить доступ: у системного
+    /// окна появляется понятная причина, и человек соглашается охотнее.
+    private var mirroringBinding: Binding<Bool> {
+        Binding(
+            get: { reminderMirror?.isMirroringEnabled ?? false },
+            set: { enabled in
+                guard let reminderMirror else { return }
+
+                guard enabled else {
+                    reminderMirror.setMirroring(false)
+                    return
+                }
+
+                Task {
+                    if let eventKit, eventKit.remindersAccess != .granted {
+                        await eventKit.requestRemindersAccess()
+                    }
+                    reminderMirror.setMirroring(eventKit?.remindersAccess == .granted)
+                }
+            }
+        )
     }
 
     // MARK: Устройство

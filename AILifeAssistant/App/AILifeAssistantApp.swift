@@ -23,7 +23,7 @@ struct AILifeAssistantApp: App {
             if AppEnvironment.isRunningTests {
                 Color.clear
             } else {
-                RootView()
+                AppRoot(appEnvironment: environment)
                     // Единый акцент на всё приложение: системные элементы
                     // управления должны совпадать по цвету с собственными.
                     .tint(DS.Palette.accent)
@@ -33,6 +33,11 @@ struct AILifeAssistantApp: App {
                     .environment(environment.processingQueue)
                     .environment(environment.undoService)
                     .environment(environment.searchService)
+                    .environment(environment.completionService)
+                    .environment(environment.reminderMirror)
+                    .environment(environment.eventKit)
+                    .environment(environment.notifications)
+                    .environment(environment.notificationRouter)
                     .environment(\.capabilities, environment.capabilities)
                     .modelContainer(environment.container)
             }

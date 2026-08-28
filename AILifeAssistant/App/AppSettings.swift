@@ -9,8 +9,8 @@ import Observation
 @Observable
 final class AppSettings {
 
-    /// Группа приложений. Должна совпадать с App Group в возможностях таргета.
-    static let suiteName = "group.com.ivans.ailifeassistant"
+    /// Группа приложений. Одна на всё приложение и расширения.
+    static let suiteName = SharedDefaults.suiteName
 
     private let defaults: UserDefaults
 
