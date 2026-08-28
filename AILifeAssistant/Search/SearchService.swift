@@ -46,7 +46,7 @@ final class SearchService {
         modelContext: ModelContext,
         networkMonitor: NetworkMonitor,
         sessionProvider: @escaping () -> String? = { nil },
-        session: URLSession = .shared
+        session: URLSession = PrivateSession.shared
     ) {
         self.modelContext = modelContext
         self.networkMonitor = networkMonitor

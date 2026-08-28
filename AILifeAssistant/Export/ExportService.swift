@@ -80,13 +80,68 @@ struct ExportService {
         formatter.dateFormat = "yyyy-MM-dd"
 
         let name = "ai-assistant-" + formatter.string(from: .now) + "." + format.fileExtension
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        let directory = try Self.exportDirectory()
+        let url = directory.appendingPathComponent(name)
+
+        // Прошлые выгрузки уходят: полный дамп дневника не должен лежать
+        // на диске неопределённо долго только потому, что человек однажды
+        // открыл лист «Поделиться» и передумал.
+        Self.removePreviousExports(in: directory, keeping: name)
 
         try await Task.detached(priority: .userInitiated) {
-            try payload.encoded().write(to: url, options: .atomic)
+            // Файл с полным содержимым дневника пишется с максимальной
+            // защитой: он не нужен приложению при заблокированном экране.
+            try payload.encoded().write(to: url, options: [.atomic, .completeFileProtection])
         }.value
 
         return url
+    }
+
+    /// Отдельный каталог для выгрузок вместо общей временной папки.
+    ///
+    /// Система чистит tmp только под давлением на диск, поэтому дамп мог
+    /// лежать там неделями, доступный всему, что имеет доступ к контейнеру.
+    static func exportDirectory() throws -> URL {
+        let base = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        let folder = base.appendingPathComponent("Exports", isDirectory: true)
+
+        if !FileManager.default.fileExists(atPath: folder.path) {
+            try FileManager.default.createDirectory(
+                at: folder,
+                withIntermediateDirectories: true,
+                attributes: [.protectionKey: FileProtectionType.complete]
+            )
+            var mutable = folder
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try? mutable.setResourceValues(values)
+        }
+
+        return folder
+    }
+
+    /// Удаляет прежние выгрузки.
+    static func removePreviousExports(in directory: URL, keeping name: String? = nil) {
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+
+        for url in contents where url.lastPathComponent != name {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    /// Чистка при запуске: файл, который человек так и не отправил,
+    /// не должен пережить перезапуск приложения.
+    static func removeStaleExports() {
+        guard let directory = try? exportDirectory() else { return }
+        removePreviousExports(in: directory)
     }
 
     private func fetch<Model: PersistentModel>(_ type: Model.Type) -> [Model] {
@@ -201,11 +256,29 @@ private extension ExportService {
             }
     }
 
+}
+
+// MARK: - Экранирование
+
+/// Не в приватном расширении: правило экранирования проверяется тестами,
+/// потому что от него зависит, исполнит ли Excel текст из выгрузки.
+extension ExportService {
+
     /// Экранирование поля: описание траты вполне может содержать запятую.
     static func escape(_ field: String) -> String {
-        guard field.contains(",") || field.contains("\"") || field.contains("\n") else {
-            return field
+        var value = field
+
+        // Поле, начинающееся со знака равенства, плюса, минуса или собачки,
+        // Excel исполняет как формулу при открытии файла. Текст в выгрузке
+        // приходит из распознавания речи, то есть снаружи, поэтому такие
+        // поля обезвреживаются апострофом.
+        if let first = value.first, "=+-@".contains(first) || first == "\t" || first == "\r" {
+            value = "'" + value
         }
-        return "\"" + field.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+
+        guard value.contains(",") || value.contains("\"") || value.contains("\n") else {
+            return value
+        }
+        return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 }

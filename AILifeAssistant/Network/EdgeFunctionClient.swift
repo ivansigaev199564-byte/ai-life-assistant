@@ -28,7 +28,7 @@ struct EdgeFunctionClient: LLMClient {
     init(
         configuration: APIConfiguration = .default,
         accessToken: String? = nil,
-        session: URLSession = .shared
+        session: URLSession = PrivateSession.shared
     ) {
         self.configuration = configuration
         self.accessToken = accessToken

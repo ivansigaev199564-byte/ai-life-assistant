@@ -1,4 +1,5 @@
-import { authenticate } from "../_shared/auth.ts";
+import { type AuthContext, authenticate } from "../_shared/auth.ts";
+import { consumeQuota, QuotaExceededError } from "../_shared/quota.ts";
 import { corsHeaders, errorResponse, jsonResponse } from "../_shared/cors.ts";
 
 /// Гибридный поиск по всем записям пользователя.
@@ -28,11 +29,22 @@ Deno.serve(async (request: Request) => {
     return errorResponse("Поддерживается только POST", 405);
   }
 
-  let auth;
+  let auth: AuthContext;
   try {
     auth = await authenticate(request);
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Нет доступа", 401);
+  }
+
+  // Предел на пользователя: платный вызов не должен зависеть только от
+  // того, что человек сумел войти через Apple.
+  try {
+    await consumeQuota(auth, "search");
+  } catch (error) {
+    if (error instanceof QuotaExceededError) {
+      return errorResponse(error.message, 429);
+    }
+    return errorResponse("Не удалось проверить предел обращений", 503);
   }
 
   let payload: SearchRequest;
@@ -75,7 +87,7 @@ Deno.serve(async (request: Request) => {
       } catch (error) {
         // Смысловой поиск не критичен: без вектора функция отработает
         // на одном полнотекстовом, и пользователь получит результат.
-        console.error("Сервис эмбеддингов недоступен", error);
+        console.error("Сервис эмбеддингов недоступен", error instanceof Error ? error.name : "unknown");
       }
     }
   }
@@ -87,7 +99,7 @@ Deno.serve(async (request: Request) => {
   });
 
   if (error) {
-    console.error("Поиск не выполнен", error);
+    console.error("Поиск не выполнен", error instanceof Error ? error.name : "unknown");
     return errorResponse("Поиск не выполнен", 500);
   }
 

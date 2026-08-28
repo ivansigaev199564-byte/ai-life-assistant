@@ -18,6 +18,7 @@ struct SettingsView: View {
     @Environment(ReminderMirror.self) private var reminderMirror: ReminderMirror?
     @Environment(EventKitService.self) private var eventKit: EventKitService?
     @Environment(NotificationService.self) private var notifications: NotificationService?
+    @Environment(AppLock.self) private var appLock: AppLock?
 
     @State private var isPreparingWhisper = false
     @State private var whisperError: String?
@@ -37,6 +38,7 @@ struct SettingsView: View {
                     recognitionSection(settings: settings)
                     captureSection(settings: settings)
                     integrationsSection
+                    securitySection
                     deviceSection
                     dataSection
                 }
@@ -360,6 +362,32 @@ struct SettingsView: View {
                 }
             }
         )
+    }
+
+    // MARK: Безопасность
+
+    /// Замок нужен ровно затем, зачем он на двери: дневник, траты и имена
+    /// людей открыты любому, у кого телефон в руках разблокированным.
+    @ViewBuilder
+    private var securitySection: some View {
+        if let appLock {
+            section("Безопасность") {
+                if appLock.isAvailable {
+                    toggleRow(
+                        "Запрашивать Face ID",
+                        hint: "Через минуту в фоне приложение запирается. Записи не видны, пока вы не подтвердите, что это вы.",
+                        isOn: Binding(
+                            get: { appLock.isEnabled },
+                            set: { appLock.isEnabled = $0 }
+                        )
+                    )
+                } else {
+                    Text("На этом устройстве нет ни Face ID, ни кода-пароля, запирать нечем.")
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.Palette.textSecondary)
+                }
+            }
+        }
     }
 
     // MARK: Устройство
