@@ -29,6 +29,17 @@ final class AudioSessionManager {
     /// закрывает сессию и сохраняет то, что успел распознать.
     var onInterruption: ((Interruption) -> Void)?
 
+    /// Пишет ли микрофон через Bluetooth-гарнитуру.
+    ///
+    /// Профиль HFP отдаёт узкополосный и заметно более тихий сигнал, чем
+    /// встроенный микрофон, а режим .measurement отключает системную
+    /// обработку. Пороги детектора для такого маршрута приходится опускать.
+    var isUsingBluetoothInput: Bool {
+        let bluetooth: Set<AVAudioSession.Port> = [.bluetoothHFP, .bluetoothLE]
+        return AVAudioSession.sharedInstance().currentRoute.inputs
+            .contains { bluetooth.contains($0.portType) }
+    }
+
     /// - Parameter observesSystemEvents: подписываться ли на прерывания
     ///   и смену маршрута. В тестах это лишнее: наблюдатели держат
     ///   аудиостек, который тестам логики не нужен вовсе.
@@ -115,9 +126,20 @@ final class AudioSessionManager {
                   let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
                   let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else { return }
 
-            // Реагируем только на пропажу устройства ввода: остальные смены
-            // маршрута не требуют останавливать запись.
-            guard reason == .oldDeviceUnavailable || reason == .override else { return }
+            // Появление нового устройства ввода не менее важно, чем пропажа
+            // старого: гарнитура, подключившаяся в машине посреди фразы,
+            // меняет формат потока, а отвод остаётся настроенным на прежний.
+            // Раньше такие события молча отбрасывались, и запись либо
+            // обрывалась тишиной, либо писалась в пустоту.
+            let handled: Set<AVAudioSession.RouteChangeReason> = [
+                .oldDeviceUnavailable,
+                .newDeviceAvailable,
+                .override,
+                .routeConfigurationChange,
+                .categoryChange
+            ]
+            guard handled.contains(reason) else { return }
+
             MainActor.assumeIsolated {
                 Log.voice.notice("Маршрут звука изменился: \(reason.rawValue)")
                 self.onInterruption?(.routeChanged)

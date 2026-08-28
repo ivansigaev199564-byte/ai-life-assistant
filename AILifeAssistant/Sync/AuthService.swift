@@ -25,6 +25,15 @@ final class AuthService: NSObject {
     /// Токен доступа для запросов к серверу. nil означает работу офлайн.
     private(set) var accessToken: String?
 
+    /// Идентификатор вошедшего пользователя.
+    ///
+    /// Нужен отправке: колонка user_id на сервере обязательная, а раньше
+    /// её никто не заполнял, и ни одна запись не могла уехать в принципе.
+    var userID: UUID? {
+        guard case .signedIn(let identifier) = state else { return nil }
+        return UUID(uuidString: identifier)
+    }
+
     private var refreshToken: String?
     private var expiresAt: Date?
 
@@ -83,12 +92,17 @@ final class AuthService: NSObject {
         }
     }
 
+    /// Вызывается при выходе: очередь отправки и курсор принадлежат
+    /// конкретному пользователю и должны исчезнуть вместе с сессией.
+    var onSignOut: (() -> Void)?
+
     func signOut() {
         accessToken = nil
         refreshToken = nil
         expiresAt = nil
         deleteStoredSession()
         state = .signedOut
+        onSignOut?()
     }
 
     /// Обновляет токен, если он скоро истечёт.

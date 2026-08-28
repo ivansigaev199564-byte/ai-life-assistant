@@ -57,6 +57,7 @@ struct VoiceActivityDetector {
 
     /// Момент запуска, задаётся первым вызовом process.
     private var startTime: TimeInterval?
+
     /// Когда впервые услышали речь.
     private var speechStartTime: TimeInterval?
     /// Когда началась текущая пауза.
