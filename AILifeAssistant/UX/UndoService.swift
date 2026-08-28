@@ -23,13 +23,14 @@ final class UndoService {
     struct Action: Identifiable, Equatable {
         enum Kind: Equatable {
             case captureCreated(UUID)
-            case correctionApplied(CorrectionApplier.Outcome.Action, captureID: UUID)
+            /// Целиком результат исправления: без него откатывать нечего.
+            case correctionApplied(CorrectionApplier.Outcome)
         }
 
         let id = UUID()
         let kind: Kind
         /// Что показать в баннере.
-        let message: String
+        var message: String
         let createdAt: Date
     }
 
@@ -41,6 +42,10 @@ final class UndoService {
     /// Вызывается, когда действие отменено: интерфейс обновляет списки,
     /// а синхронизация узнаёт, что запись исчезла.
     var onUndone: ((Action) -> Void)?
+
+    /// Вызывается, когда удалённая по голосу запись вернулась на место:
+    /// её нужно разобрать заново, иначе она останется без задач и расходов.
+    var onCaptureRestored: ((UUID) -> Void)?
 
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
@@ -55,14 +60,30 @@ final class UndoService {
     }
 
     /// Показывает баннер после применённого исправления.
-    func register(correction outcome: CorrectionApplier.Outcome, captureID: UUID) {
+    func register(correction outcome: CorrectionApplier.Outcome) {
         present(
             Action(
-                kind: .correctionApplied(outcome.action, captureID: captureID),
+                kind: .correctionApplied(outcome),
                 message: outcome.summary,
                 createdAt: .now
             )
         )
+    }
+
+    /// Обновляет текст уже висящего баннера той же записи.
+    ///
+    /// Разбор идёт секундами дольше сохранения, и его результат должен
+    /// уточнить показанный баннер, а не создать новый. Иначе баннер записи Б
+    /// молча подменялся записью А, и «Отменить» удаляло не то, на что
+    /// человек смотрел. Если баннера нет или он о другой записи, не делаем
+    /// ничего: так разбор старых записей при запуске больше не всплывает
+    /// предложением их удалить.
+    func updateSummary(for capture: CaptureItem) {
+        guard let pending, case .captureCreated(let id) = pending.kind, id == capture.id else {
+            return
+        }
+
+        self.pending?.message = Self.summary(for: capture)
     }
 
     private func present(_ action: Action) {
@@ -89,11 +110,20 @@ final class UndoService {
         case .captureCreated(let id):
             undoCapture(id: id)
 
-        case .correctionApplied:
-            // Возврат исправления не реализуем: восстанавливать предыдущее
-            // значение вслепую опаснее, чем оставить как есть. Пользователь
-            // поправит вручную на экране записи, где видит и текст, и разбор.
-            Log.ui.notice("Отмена исправления не поддерживается")
+        case .correctionApplied(let outcome):
+            let applier = CorrectionApplier(modelContext: modelContext)
+
+            switch applier.revert(outcome) {
+            case .restored(let id):
+                // Запись вернулась пустой: задачи и расходы из неё создаст
+                // повторный разбор.
+                Log.ui.notice("Удалённая по голосу запись восстановлена")
+                onCaptureRestored?(id)
+            case .reverted:
+                Log.ui.notice("Исправление отменено")
+            case .failed:
+                Log.ui.error("Отменить исправление не удалось: цель не найдена")
+            }
         }
 
         onUndone?(action)

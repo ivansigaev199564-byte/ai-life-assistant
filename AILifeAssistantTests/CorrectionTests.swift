@@ -175,4 +175,83 @@ final class CorrectionTests: XCTestCase {
         }
         XCTAssertEqual(reminder.fireDate.timeIntervalSince1970, newDate.timeIntervalSince1970, accuracy: 1)
     }
+
+    // MARK: Границы слова
+
+    /// Слово «отменить» посреди предложения ничего не отменяет.
+    ///
+    /// Раньше маркер искался подстрокой, и любая фраза про отменённую
+    /// встречу или подписку удаляла предыдущую запись вместе с аудиофайлом.
+    func testDoesNotTreatWordInsideSentenceAsCancellation() {
+        let phrases = [
+            "встречу отменили, напомни позвонить Игорю",
+            "нужно отменить подписку на Нетфликс",
+            "они отменили рейс, надо перебронировать",
+            "не забудь отменить бронь"
+        ]
+
+        for phrase in phrases {
+            XCTAssertNil(
+                CorrectionDetector.detect(in: phrase, context: parsingContext),
+                "Фраза «\(phrase)» не должна распознаваться как отмена"
+            )
+        }
+    }
+
+    func testDetectsCancellationWithSupport() throws {
+        let phrases = [
+            "отмени", "отмени последнюю запись", "отмени это",
+            "удали последнюю запись", "сотри последнее", "забудь про это"
+        ]
+
+        for phrase in phrases {
+            let correction = try XCTUnwrap(
+                CorrectionDetector.detect(in: phrase, context: parsingContext),
+                "Фраза «\(phrase)» должна распознаваться как отмена"
+            )
+            XCTAssertEqual(correction.target, .cancellation)
+        }
+    }
+
+    // MARK: Самопоправка
+
+    /// «Нет, шестьдесят четыре» это то, как люди поправляют себя вслух
+    /// чаще всего. Связки «а» в такой фразе нет, и раньше она проходила
+    /// мимо, создавая вторую запись рядом с ошибочной.
+    func testDetectsSelfCorrectionStartingWithNo() throws {
+        let correction = try XCTUnwrap(
+            CorrectionDetector.detect(in: "нет, 64 рубля", context: parsingContext)
+        )
+
+        guard case .amount(let value) = correction.target else {
+            return XCTFail("Ожидалось исправление суммы, получено \(correction.target)")
+        }
+        XCTAssertEqual(value, 64)
+    }
+
+    func testDetectsSelfCorrectionInsideSentence() throws {
+        let correction = try XCTUnwrap(
+            CorrectionDetector.detect(in: "потратил 300, нет, 400 рублей", context: parsingContext)
+        )
+
+        guard case .amount(let value) = correction.target else {
+            return XCTFail("Ожидалось исправление суммы, получено \(correction.target)")
+        }
+        XCTAssertEqual(value, 400)
+    }
+
+    /// А вот «нет» в середине обычной фразы поправкой не является.
+    func testDoesNotTreatPlainNoAsCorrection() {
+        let phrases = [
+            "у меня нет времени, напомни позвонить в банк",
+            "в магазине нет молока"
+        ]
+
+        for phrase in phrases {
+            XCTAssertFalse(
+                CorrectionDetector.looksLikeCorrection(phrase),
+                "Фраза «\(phrase)» не должна считаться исправлением"
+            )
+        }
+    }
 }

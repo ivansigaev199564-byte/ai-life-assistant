@@ -28,6 +28,35 @@ struct CorrectionApplier {
         /// Понятное описание для баннера: пользователь должен сразу увидеть,
         /// что именно поняло приложение.
         let summary: String
+        /// Запись, которую правили. Без неё откат не знает, к чему возвращаться.
+        var captureID: UUID?
+        /// Снимок удалённой записи. Отменить удаление больше нечем.
+        var removed: RemovedCapture?
+    }
+
+    /// Всё, что нужно, чтобы вернуть удалённую запись.
+    ///
+    /// Производные сущности в снимок не входят: они восстанавливаются
+    /// повторным разбором, и это надёжнее, чем копировать связи вручную.
+    struct RemovedCapture: Equatable, Sendable {
+        let id: UUID
+        let text: String
+        let createdAt: Date
+        let source: CaptureSource
+        let engine: SpeechEngineKind
+        let languageCode: String?
+        let recognitionConfidence: Double
+        let audioDuration: TimeInterval
+        let audioFileName: String?
+    }
+
+    /// Чем закончился откат.
+    enum RevertResult: Equatable, Sendable {
+        /// Запись восстановлена, её нужно разобрать заново.
+        case restored(UUID)
+        /// Значение возвращено к прежнему.
+        case reverted
+        case failed
     }
 
     private let modelContext: ModelContext
@@ -40,9 +69,10 @@ struct CorrectionApplier {
 
     func apply(
         _ correction: CorrectionDetector.Correction,
-        at referenceDate: Date = .now
+        at referenceDate: Date = .now,
+        excluding excludedID: UUID? = nil
     ) -> Outcome {
-        guard let capture = recentCapture(before: referenceDate) else {
+        guard let capture = recentCapture(before: referenceDate, excluding: excludedID) else {
             return Outcome(action: .noTarget, summary: "Нечего исправлять")
         }
 
@@ -64,14 +94,30 @@ struct CorrectionApplier {
     // MARK: Операции
 
     private func remove(_ capture: CaptureItem) -> Outcome {
-        if let fileName = capture.audioFileName {
-            RecordingStore().delete(fileName: fileName)
-        }
+        let snapshot = RemovedCapture(
+            id: capture.id,
+            text: capture.text,
+            createdAt: capture.createdAt,
+            source: capture.source,
+            engine: capture.engine,
+            languageCode: capture.languageCode,
+            recognitionConfidence: capture.recognitionConfidence,
+            audioDuration: capture.audioDuration,
+            audioFileName: capture.audioFileName
+        )
 
+        // Аудиофайл остаётся на диске: удаление по голосу должно
+        // отменяться целиком, вместе с записью голоса. Файл всё равно
+        // уйдёт по сроку хранения записей.
         modelContext.delete(capture)
         save()
 
-        return Outcome(action: .captureRemoved, summary: "Последняя запись удалена")
+        return Outcome(
+            action: .captureRemoved,
+            summary: "Последняя запись удалена",
+            captureID: snapshot.id,
+            removed: snapshot
+        )
     }
 
     /// Правит сумму последнего расхода.
@@ -99,7 +145,8 @@ struct CorrectionApplier {
 
         return Outcome(
             action: .amountChanged(from: oldAmount, to: newAmount),
-            summary: "Сумма исправлена на \(newAmount.formatted(.currency(code: expense.currencyCode)))"
+            summary: "Сумма исправлена на \(newAmount.formatted(.currency(code: expense.currencyCode)))",
+            captureID: capture.id
         )
     }
 
@@ -116,7 +163,8 @@ struct CorrectionApplier {
 
             return Outcome(
                 action: .dateChanged(from: oldDate, to: newDate),
-                summary: "Время исправлено на " + newDate.formatted(date: .abbreviated, time: .shortened)
+                summary: "Время исправлено на " + newDate.formatted(date: .abbreviated, time: .shortened),
+                captureID: capture.id
             )
         }
 
@@ -129,7 +177,8 @@ struct CorrectionApplier {
 
             return Outcome(
                 action: .dateChanged(from: oldDate, to: newDate),
-                summary: "Срок исправлен на " + newDate.formatted(date: .abbreviated, time: .omitted)
+                summary: "Срок исправлен на " + newDate.formatted(date: .abbreviated, time: .omitted),
+                captureID: capture.id
             )
         }
 
@@ -146,7 +195,11 @@ struct CorrectionApplier {
             reminder.updatedAt = .now
             reminder.syncState = .pendingUpload
             save()
-            return Outcome(action: .titleChanged(from: old, to: cleaned), summary: "Текст исправлен")
+            return Outcome(
+                action: .titleChanged(from: old, to: cleaned),
+                summary: "Текст исправлен",
+                captureID: capture.id
+            )
         }
 
         if let task = capture.tasks.first {
@@ -155,37 +208,168 @@ struct CorrectionApplier {
             task.updatedAt = .now
             task.syncState = .pendingUpload
             save()
-            return Outcome(action: .titleChanged(from: old, to: cleaned), summary: "Текст исправлен")
+            return Outcome(
+                action: .titleChanged(from: old, to: cleaned),
+                summary: "Текст исправлен",
+                captureID: capture.id
+            )
         }
 
         if let note = capture.notes.first {
-            let old = note.displayTitle
+            // Запоминаем именно тело, а не заголовок: по заголовку заметку
+            // потом не восстановить, он производный.
+            let old = note.body
             note.body = cleaned
             note.updatedAt = .now
             note.syncState = .pendingUpload
             save()
-            return Outcome(action: .titleChanged(from: old, to: cleaned), summary: "Текст исправлен")
+            return Outcome(
+                action: .titleChanged(from: old, to: cleaned),
+                summary: "Текст исправлен",
+                captureID: capture.id
+            )
         }
 
         return Outcome(action: .noTarget, summary: "Нечего исправлять")
     }
 
+    // MARK: Откат
+
+    /// Возвращает всё как было.
+    ///
+    /// Раньше кнопка «Отменить» на баннере исправления не делала ничего:
+    /// баннер закрывался, будто откат сработал, а запись оставалась
+    /// изменённой или удалённой. Хуже всего было с отменой по голосу,
+    /// которая уносила запись вместе со всем, что из неё разобрано.
+    @discardableResult
+    func revert(_ outcome: Outcome) -> RevertResult {
+        switch outcome.action {
+        case .captureRemoved:
+            guard let snapshot = outcome.removed else { return .failed }
+            return restore(snapshot)
+
+        case .amountChanged(let from, let to):
+            guard let capture = capture(withID: outcome.captureID),
+                  let expense = capture.expenses.first
+            else { return .failed }
+
+            expense.amount = from
+            expense.updatedAt = .now
+            expense.syncState = .pendingUpload
+
+            // Вместе с суммой правился текст записи, возвращаем и его.
+            capture.text = capture.text.replacingOccurrences(
+                of: NSDecimalNumber(decimal: to).stringValue,
+                with: NSDecimalNumber(decimal: from).stringValue
+            )
+            capture.updatedAt = .now
+            save()
+            return .reverted
+
+        case .dateChanged(let from, _):
+            guard let capture = capture(withID: outcome.captureID) else { return .failed }
+
+            if let reminder = capture.reminders.first {
+                reminder.fireDate = from
+                reminder.updatedAt = .now
+                reminder.syncState = .pendingUpload
+            } else if let task = capture.tasks.first {
+                task.dueDate = from
+                task.updatedAt = .now
+                task.syncState = .pendingUpload
+            } else {
+                return .failed
+            }
+
+            save()
+            return .reverted
+
+        case .titleChanged(let from, _):
+            guard let capture = capture(withID: outcome.captureID) else { return .failed }
+
+            if let reminder = capture.reminders.first {
+                reminder.title = from
+                reminder.updatedAt = .now
+                reminder.syncState = .pendingUpload
+            } else if let task = capture.tasks.first {
+                task.title = from
+                task.updatedAt = .now
+                task.syncState = .pendingUpload
+            } else if let note = capture.notes.first {
+                note.body = from
+                note.updatedAt = .now
+                note.syncState = .pendingUpload
+            } else {
+                return .failed
+            }
+
+            save()
+            return .reverted
+
+        case .noTarget:
+            return .failed
+        }
+    }
+
+    /// Возвращает удалённую запись на место.
+    ///
+    /// Производные сущности не восстанавливаются копированием: запись
+    /// возвращается в состояние «ждёт разбора», и заметки, задачи,
+    /// напоминания и расходы создаёт заново обычный конвейер.
+    private func restore(_ snapshot: RemovedCapture) -> RevertResult {
+        let capture = CaptureItem(
+            id: snapshot.id,
+            text: snapshot.text,
+            status: .pending,
+            source: snapshot.source,
+            engine: snapshot.engine,
+            languageCode: snapshot.languageCode,
+            recognitionConfidence: snapshot.recognitionConfidence,
+            audioDuration: snapshot.audioDuration,
+            audioFileName: snapshot.audioFileName,
+            createdAt: snapshot.createdAt
+        )
+
+        modelContext.insert(capture)
+        save()
+
+        return .restored(snapshot.id)
+    }
+
     // MARK: Поиск цели
 
-    /// Последняя запись в пределах окна исправления.
+    /// Последняя запись в пределах окна исправления, строго раньше опорного
+    /// момента.
     ///
-    /// Сама фраза-исправление в поиск не попадает: она ещё не сохранена
-    /// как захват, конвейер спрашивает цель до создания записи.
-    func recentCapture(before referenceDate: Date = .now) -> CaptureItem? {
+    /// Строгость здесь принципиальна. Фраза-исправление к этому моменту уже
+    /// сохранена как захват и является самой свежей записью, поэтому раньше
+    /// «отмени последнюю запись» удаляло само себя: расход оставался на месте,
+    /// а баннер сообщал, что запись удалена.
+    func recentCapture(
+        before referenceDate: Date = .now,
+        excluding excludedID: UUID? = nil
+    ) -> CaptureItem? {
         let cutoff = referenceDate.addingTimeInterval(-Self.correctionWindow)
 
         var descriptor = FetchDescriptor<CaptureItem>(
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
-        descriptor.fetchLimit = 5
+        descriptor.fetchLimit = 6
 
         let recent = (try? modelContext.fetch(descriptor)) ?? []
-        return recent.first { $0.createdAt >= cutoff }
+        return recent.first { candidate in
+            candidate.id != excludedID
+                && candidate.createdAt < referenceDate
+                && candidate.createdAt >= cutoff
+        }
+    }
+
+    private func capture(withID id: UUID?) -> CaptureItem? {
+        guard let id else { return nil }
+
+        var descriptor = FetchDescriptor<CaptureItem>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return try? modelContext.fetch(descriptor).first
     }
 
     private func save() {
