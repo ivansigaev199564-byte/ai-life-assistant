@@ -91,10 +91,13 @@ final class RealPhrasesTests: XCTestCase {
 
     // MARK: Место траты
 
+    /// Известные сети приводятся к именительному падежу: иначе отчёт
+    /// по местам рассыпается на «Пятёрочке», «Пятёрочку» и «Пятёрочка».
+    /// Незнакомое название остаётся как есть, выдумывать его форму не из чего.
     func testMerchantExtraction() {
         XCTAssertEqual(MerchantExtractor.extract(from: "взял кофе в Скуратове"), "Скуратове")
-        XCTAssertEqual(MerchantExtractor.extract(from: "купил продукты в Пятёрочке"), "Пятёрочке")
-        XCTAssertEqual(MerchantExtractor.extract(from: "заправился на Лукойле"), "Лукойле")
+        XCTAssertEqual(MerchantExtractor.extract(from: "купил продукты в Пятёрочке"), "Пятёрочка")
+        XCTAssertEqual(MerchantExtractor.extract(from: "заправился на Лукойле"), "Лукойл")
     }
 
     /// Нарицательное место ничего не добавляет к категории и только
@@ -113,7 +116,7 @@ final class RealPhrasesTests: XCTestCase {
 
         XCTAssertEqual(item.kind, .expense)
         XCTAssertEqual(item.amount, 1000)
-        XCTAssertEqual(item.merchant, "Пятёрочке")
+        XCTAssertEqual(item.merchant, "Пятёрочка")
     }
 
     func testReminderKeepsRecurrence() async throws {
