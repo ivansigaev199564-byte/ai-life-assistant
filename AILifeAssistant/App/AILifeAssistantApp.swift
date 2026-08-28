@@ -55,6 +55,13 @@ struct AILifeAssistantApp: App {
                 environment.appLock.applicationWillEnterForeground()
             case .background:
                 environment.appLock.applicationDidEnterBackground()
+
+                // Запись, начатая в приложении, не должна продолжаться
+                // вслепую после ухода в фон: сказанное сохраняется,
+                // микрофон отпускается.
+                if environment.coordinator.phase.isActive {
+                    Task { await environment.coordinator.stop(reason: .interrupted) }
+                }
             default:
                 break
             }
