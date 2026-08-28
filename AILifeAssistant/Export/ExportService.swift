@@ -57,8 +57,7 @@ struct ExportService {
                 // кириллицу кракозябрами, и выгрузка выглядит испорченной,
                 // хотя данные целы.
                 var data = Data([0xEF, 0xBB, 0xBF])
-                data.append(lines.joined(separator: "
-").data(using: .utf8) ?? Data())
+                data.append(lines.joined(separator: "\n").data(using: .utf8) ?? Data())
                 return data
             }
         }
