@@ -29,7 +29,35 @@ struct RootView: View {
     @State private var draftText = ""
 
     /// Записи, которые приложение поняло неуверенно.
-    @Query private var allCaptures: [CaptureItem]
+    ///
+    /// Раньше здесь лежала вся таблица захватов, а счётчик проверок ходил
+    /// по ней и трогал связи каждой записи. На двух тысячах записей это
+    /// давало тысячи отдельных запросов на каждую перерисовку экрана.
+    @Query private var uncertainCaptures: [CaptureItem]
+
+    /// Заметки, помеченные на проверку.
+    @Query private var uncertainNotes: [Note]
+
+    /// Пробные выборки на одну строку: нужен только ответ «есть или нет».
+    @Query private var anyExpense: [Expense]
+    @Query private var anyCapture: [CaptureItem]
+
+    init() {
+        _uncertainCaptures = Query(
+            FetchDescriptor<CaptureItem>(predicate: CaptureItem.needsReviewPredicate)
+        )
+        _uncertainNotes = Query(
+            FetchDescriptor<Note>(predicate: #Predicate { $0.needsReview })
+        )
+
+        var expenseProbe = FetchDescriptor<Expense>()
+        expenseProbe.fetchLimit = 1
+        _anyExpense = Query(expenseProbe)
+
+        var captureProbe = FetchDescriptor<CaptureItem>()
+        captureProbe.fetchLimit = 1
+        _anyCapture = Query(captureProbe)
+    }
 
     /// Первый запуск: голосовой интерфейс не объясняет себя сам,
     /// и без примеров фраз человек просто не знает, что сказать.
@@ -42,11 +70,22 @@ struct RootView: View {
 
     /// Есть ли траты: без них экран расходов пуст и в шапке не нужен.
     private var hasExpenses: Bool {
-        allCaptures.contains { !$0.expenses.isEmpty }
+        !anyExpense.isEmpty
     }
 
+    /// Сколько записей ждут проверки.
+    ///
+    /// Запись и её заметка могут быть помечены обе, поэтому считаем
+    /// по идентификаторам, а не складываем два числа.
     private var reviewCount: Int {
-        allCaptures.filter { $0.needsReview || $0.notes.contains(where: \.needsReview) }.count
+        var identifiers = Set(uncertainCaptures.map(\.id))
+
+        for note in uncertainNotes {
+            guard let sourceID = note.source?.id else { continue }
+            identifiers.insert(sourceID)
+        }
+
+        return identifiers.count
     }
 
     var body: some View {
@@ -128,7 +167,7 @@ struct RootView: View {
         ScreenHeader(title: "Инбокс", subtitle: subtitle) {
             AnyView(
                 HStack(spacing: DS.Spacing.xs) {
-                    if !allCaptures.isEmpty {
+                    if !anyCapture.isEmpty {
                         Button {
                             isShowingSearch = true
                         } label: {

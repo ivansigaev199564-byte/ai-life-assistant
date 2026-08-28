@@ -82,39 +82,43 @@ struct TodayProvider: TimelineProvider {
 
         var items: [TodayItem] = []
 
-        // Напоминания на сегодня и всё просроченное: вчерашнее несделанное
-        // важнее завтрашнего запланированного.
-        let reminders = (try? context.fetch(FetchDescriptor<Reminder>())) ?? []
-        items += reminders
-            .filter { !$0.isCompleted && $0.fireDate <= endOfDay }
-            .map {
-                TodayItem(
-                    id: $0.id,
-                    title: $0.title,
-                    date: $0.fireDate,
-                    isReminder: true,
-                    isOverdue: $0.fireDate < .now
-                )
-            }
+        // Условие уходит в базу, а из базы поднимается только то, что нужно
+        // показать. Расширение живёт в жёстком лимите памяти около 30 МБ,
+        // и подъём всех напоминаний и задач ради шести строк убивал его
+        // на второй тысяче записей.
+        var reminderDescriptor = FetchDescriptor<Reminder>(
+            predicate: #Predicate { !$0.isCompleted && $0.fireDate <= endOfDay },
+            sortBy: [SortDescriptor(\.fireDate, order: .forward)]
+        )
+        reminderDescriptor.fetchLimit = Self.fetchLimit
+
+        items += ((try? context.fetch(reminderDescriptor)) ?? []).map {
+            TodayItem(
+                id: $0.id,
+                title: $0.title,
+                date: $0.fireDate,
+                isReminder: true,
+                isOverdue: $0.fireDate < .now
+            )
+        }
 
         // Задачи со сроком на сегодня и раньше, плюс задачи без срока:
         // они всё равно ждут своей очереди и должны попадаться на глаза.
-        let tasks = (try? context.fetch(FetchDescriptor<TaskItem>())) ?? []
-        items += tasks
-            .filter { task in
-                guard !task.isCompleted else { return false }
-                guard let dueDate = task.dueDate else { return true }
-                return dueDate <= endOfDay
-            }
-            .map {
-                TodayItem(
-                    id: $0.id,
-                    title: $0.title,
-                    date: $0.dueDate,
-                    isReminder: false,
-                    isOverdue: $0.isOverdue
-                )
-            }
+        var taskDescriptor = FetchDescriptor<TaskItem>(
+            predicate: #Predicate { !$0.isCompleted && ($0.dueDate == nil || ($0.dueDate ?? endOfDay) <= endOfDay) },
+            sortBy: [SortDescriptor(\.dueDate, order: .forward)]
+        )
+        taskDescriptor.fetchLimit = Self.fetchLimit
+
+        items += ((try? context.fetch(taskDescriptor)) ?? []).map {
+            TodayItem(
+                id: $0.id,
+                title: $0.title,
+                date: $0.dueDate,
+                isReminder: false,
+                isOverdue: $0.isOverdue
+            )
+        }
 
         // Порядок: сначала просроченное, потом по времени, дела без времени
         // в конце. Так первым в глаза попадает то, что уже горит.
@@ -128,6 +132,31 @@ struct TodayProvider: TimelineProvider {
             }
         }
 
-        return TodayEntry(date: .now, items: Array(sorted.prefix(6)), totalCount: sorted.count)
+        // Общее число считаем запросом, а не длиной поднятого массива.
+        let total = Self.count(of: reminderDescriptor, in: context)
+            + Self.count(of: taskDescriptor, in: context)
+
+        return TodayEntry(
+            date: .now,
+            items: Array(sorted.prefix(Self.visibleLimit)),
+            totalCount: max(total, sorted.count)
+        )
+    }
+
+    /// Сколько строк поднимать: с запасом на сортировку по просрочке,
+    /// но далеко не вся таблица.
+    private static let fetchLimit = 24
+
+    /// Сколько дел помещается в самый большой из поддерживаемых виджетов.
+    private static let visibleLimit = 6
+
+    private static func count<Model: PersistentModel>(
+        of descriptor: FetchDescriptor<Model>,
+        in context: ModelContext
+    ) -> Int {
+        var counting = descriptor
+        counting.fetchLimit = 0
+        counting.fetchOffset = 0
+        return (try? context.fetchCount(counting)) ?? 0
     }
 }

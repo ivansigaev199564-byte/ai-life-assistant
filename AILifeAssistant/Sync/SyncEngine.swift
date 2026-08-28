@@ -157,37 +157,51 @@ private extension SyncEngine {
     ) async throws {
         switch entityType {
         case .capture:
-            let items = try fetchLocal(CaptureItem.self).filter { ids.contains($0.id) }
+            let items = try modelContext.fetch(
+                FetchDescriptor<CaptureItem>(predicate: #Predicate { ids.contains($0.id) })
+            )
             try await client.upsert(items.map(\.dto), into: entityType.tableName)
             markSynced(items)
 
         case .note:
-            let items = try fetchLocal(Note.self).filter { ids.contains($0.id) }
+            let items = try modelContext.fetch(
+                FetchDescriptor<Note>(predicate: #Predicate { ids.contains($0.id) })
+            )
             try await client.upsert(items.map(\.dto), into: entityType.tableName)
             items.forEach { $0.syncState = .synced }
 
         case .task:
-            let items = try fetchLocal(TaskItem.self).filter { ids.contains($0.id) }
+            let items = try modelContext.fetch(
+                FetchDescriptor<TaskItem>(predicate: #Predicate { ids.contains($0.id) })
+            )
             try await client.upsert(items.map(\.dto), into: entityType.tableName)
             items.forEach { $0.syncState = .synced }
 
         case .reminder:
-            let items = try fetchLocal(Reminder.self).filter { ids.contains($0.id) }
+            let items = try modelContext.fetch(
+                FetchDescriptor<Reminder>(predicate: #Predicate { ids.contains($0.id) })
+            )
             try await client.upsert(items.map(\.dto), into: entityType.tableName)
             items.forEach { $0.syncState = .synced }
 
         case .expense:
-            let items = try fetchLocal(Expense.self).filter { ids.contains($0.id) }
+            let items = try modelContext.fetch(
+                FetchDescriptor<Expense>(predicate: #Predicate { ids.contains($0.id) })
+            )
             try await client.upsert(items.map(\.dto), into: entityType.tableName)
             items.forEach { $0.syncState = .synced }
 
         case .person:
-            let items = try fetchLocal(Person.self).filter { ids.contains($0.id) }
+            let items = try modelContext.fetch(
+                FetchDescriptor<Person>(predicate: #Predicate { ids.contains($0.id) })
+            )
             try await client.upsert(items.map(\.dto), into: entityType.tableName)
             items.forEach { $0.syncState = .synced }
 
         case .project:
-            let items = try fetchLocal(Project.self).filter { ids.contains($0.id) }
+            let items = try modelContext.fetch(
+                FetchDescriptor<Project>(predicate: #Predicate { ids.contains($0.id) })
+            )
             try await client.upsert(items.map(\.dto), into: entityType.tableName)
             items.forEach { $0.syncState = .synced }
         }
@@ -202,9 +216,6 @@ private extension SyncEngine {
         }
     }
 
-    func fetchLocal<Model: PersistentModel>(_ type: Model.Type) throws -> [Model] {
-        try modelContext.fetch(FetchDescriptor<Model>())
-    }
 }
 
 // MARK: - Получение
@@ -230,17 +241,22 @@ private extension SyncEngine {
         let captures: [CaptureDTO] = try await client.fetchChanges(from: "captures", since: since)
         applyCaptures(captures)
 
+        // Указатель на захваты строится один раз за приём. Раньше он
+        // собирался заново внутри каждой ветки, то есть пять раз подряд,
+        // и каждый раз поднимал таблицу захватов целиком.
+        let captures = captureIndex()
+
         let notes: [NoteDTO] = try await client.fetchChanges(from: "notes", since: since)
-        applyNotes(notes)
+        applyNotes(notes, captures: captures)
 
         let tasks: [TaskDTO] = try await client.fetchChanges(from: "tasks", since: since)
-        applyTasks(tasks)
+        applyTasks(tasks, captures: captures)
 
         let reminders: [ReminderDTO] = try await client.fetchChanges(from: "reminders", since: since)
-        applyReminders(reminders)
+        applyReminders(reminders, captures: captures)
 
         let expenses: [ExpenseDTO] = try await client.fetchChanges(from: "expenses", since: since)
-        applyExpenses(expenses)
+        applyExpenses(expenses, captures: captures)
 
         try modelContext.save()
     }
@@ -248,8 +264,19 @@ private extension SyncEngine {
     /// Указатель на захват по идентификатору: производные сущности
     /// связываются с ним при создании.
     func captureIndex() -> [UUID: CaptureItem] {
-        let items = (try? fetchLocal(CaptureItem.self)) ?? []
-        return Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        index(FetchDescriptor<CaptureItem>())
+    }
+
+    /// Указатель «идентификатор к записи».
+    ///
+    /// Дубликат идентификатора больше не роняет приём: раньше здесь стоял
+    /// Dictionary(uniqueKeysWithValues:), который на повторяющемся ключе
+    /// падает, а сервер вполне может прислать такую пару.
+    func index<Model: PersistentModel & Identifiable>(
+        _ descriptor: FetchDescriptor<Model>
+    ) -> [UUID: Model] where Model.ID == UUID {
+        let items = (try? modelContext.fetch(descriptor)) ?? []
+        return Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     func applyCaptures(_ dtos: [CaptureDTO]) {
@@ -269,13 +296,12 @@ private extension SyncEngine {
         }
     }
 
-    func applyNotes(_ dtos: [NoteDTO]) {
+    func applyNotes(_ dtos: [NoteDTO], captures: [UUID: CaptureItem]) {
         guard !dtos.isEmpty else { return }
-        let existing = Dictionary(
-            uniqueKeysWithValues: ((try? fetchLocal(Note.self)) ?? []).map { ($0.id, $0) }
+        let ids = Set(dtos.map(\.id))
+        let existing = index(
+            FetchDescriptor<Note>(predicate: #Predicate { ids.contains($0.id) })
         )
-        let captures = captureIndex()
-
         for dto in dtos {
             if let local = existing[dto.id] {
                 if dto.deletedAt != nil {
@@ -291,13 +317,12 @@ private extension SyncEngine {
         }
     }
 
-    func applyTasks(_ dtos: [TaskDTO]) {
+    func applyTasks(_ dtos: [TaskDTO], captures: [UUID: CaptureItem]) {
         guard !dtos.isEmpty else { return }
-        let existing = Dictionary(
-            uniqueKeysWithValues: ((try? fetchLocal(TaskItem.self)) ?? []).map { ($0.id, $0) }
+        let ids = Set(dtos.map(\.id))
+        let existing = index(
+            FetchDescriptor<TaskItem>(predicate: #Predicate { ids.contains($0.id) })
         )
-        let captures = captureIndex()
-
         for dto in dtos {
             if let local = existing[dto.id] {
                 if dto.deletedAt != nil {
@@ -313,13 +338,12 @@ private extension SyncEngine {
         }
     }
 
-    func applyReminders(_ dtos: [ReminderDTO]) {
+    func applyReminders(_ dtos: [ReminderDTO], captures: [UUID: CaptureItem]) {
         guard !dtos.isEmpty else { return }
-        let existing = Dictionary(
-            uniqueKeysWithValues: ((try? fetchLocal(Reminder.self)) ?? []).map { ($0.id, $0) }
+        let ids = Set(dtos.map(\.id))
+        let existing = index(
+            FetchDescriptor<Reminder>(predicate: #Predicate { ids.contains($0.id) })
         )
-        let captures = captureIndex()
-
         for dto in dtos {
             if let local = existing[dto.id] {
                 if dto.deletedAt != nil {
@@ -335,13 +359,12 @@ private extension SyncEngine {
         }
     }
 
-    func applyExpenses(_ dtos: [ExpenseDTO]) {
+    func applyExpenses(_ dtos: [ExpenseDTO], captures: [UUID: CaptureItem]) {
         guard !dtos.isEmpty else { return }
-        let existing = Dictionary(
-            uniqueKeysWithValues: ((try? fetchLocal(Expense.self)) ?? []).map { ($0.id, $0) }
+        let ids = Set(dtos.map(\.id))
+        let existing = index(
+            FetchDescriptor<Expense>(predicate: #Predicate { ids.contains($0.id) })
         )
-        let captures = captureIndex()
-
         for dto in dtos {
             if let local = existing[dto.id] {
                 if dto.deletedAt != nil {
@@ -359,8 +382,9 @@ private extension SyncEngine {
 
     func applyPeople(_ dtos: [PersonDTO]) {
         guard !dtos.isEmpty else { return }
-        let existing = Dictionary(
-            uniqueKeysWithValues: ((try? fetchLocal(Person.self)) ?? []).map { ($0.id, $0) }
+        let ids = Set(dtos.map(\.id))
+        let existing = index(
+            FetchDescriptor<Person>(predicate: #Predicate { ids.contains($0.id) })
         )
 
         for dto in dtos {
@@ -378,8 +402,9 @@ private extension SyncEngine {
 
     func applyProjects(_ dtos: [ProjectDTO]) {
         guard !dtos.isEmpty else { return }
-        let existing = Dictionary(
-            uniqueKeysWithValues: ((try? fetchLocal(Project.self)) ?? []).map { ($0.id, $0) }
+        let ids = Set(dtos.map(\.id))
+        let existing = index(
+            FetchDescriptor<Project>(predicate: #Predicate { ids.contains($0.id) })
         )
 
         for dto in dtos {

@@ -28,6 +28,20 @@ final class SearchService {
     /// иначе ответы приходят вразнобой и выдача прыгает.
     private var remoteTask: Task<Void, Never>?
 
+    /// Задача отложенного поиска.
+    private var searchTask: Task<Void, Never>?
+
+    /// Пауза перед поиском.
+    ///
+    /// Человек печатает быстрее, чем читает выдачу. Без паузы слово из пяти
+    /// букв это пять полных проходов по базе и пять сетевых запросов,
+    /// из которых нужен один, а поле ввода начинает терять символы.
+    private static let debounce = Duration.milliseconds(250)
+
+    /// Сколько строк каждого типа поднимать за раз: на экран всё равно
+    /// помещается заметно меньше.
+    private static let localFetchLimit = 40
+
     init(
         modelContext: ModelContext,
         networkMonitor: NetworkMonitor,
@@ -46,6 +60,7 @@ final class SearchService {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
 
         remoteTask?.cancel()
+        searchTask?.cancel()
         usedSemanticSearch = false
 
         guard query.count >= 2 else {
@@ -54,20 +69,26 @@ final class SearchService {
             return
         }
 
-        // Локальные результаты показываются сразу: ждать сеть ради поиска
-        // по собственным заметкам пользователь не должен.
-        results = localResults(for: query)
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.debounce)
+            guard !Task.isCancelled, let self else { return }
 
-        guard canSearchRemotely else { return }
+            // Локальные результаты показываются сразу: ждать сеть ради поиска
+            // по собственным заметкам пользователь не должен.
+            self.results = self.localResults(for: query)
 
-        isSearching = true
-        remoteTask = Task { [weak self] in
-            await self?.appendRemoteResults(for: query)
+            guard self.canSearchRemotely else { return }
+
+            self.isSearching = true
+            self.remoteTask = Task { [weak self] in
+                await self?.appendRemoteResults(for: query)
+            }
         }
     }
 
     func clear() {
         remoteTask?.cancel()
+        searchTask?.cancel()
         results = []
         isSearching = false
         usedSemanticSearch = false
@@ -83,103 +104,111 @@ final class SearchService {
 
     /// Проход по локальной базе.
     ///
-    /// Предикаты SwiftData не умеют искать без учёта регистра по нескольким
-    /// полям сразу, поэтому выборка идёт целиком, а фильтрация в памяти.
-    /// На объёмах личных заметок это тысячи строк, что незаметно.
+    /// Условие уходит в базу предикатом, а не фильтрует поднятые в память
+    /// таблицы. Цена решения: поиск по названию категории расхода пропал,
+    /// оно вычисляемое и в предикат не переводится. Взамен экран перестал
+    /// подниматься на несколько секунд при вводе первой буквы.
     private func localResults(for query: String) -> [SearchResult] {
         var found: [SearchResult] = []
 
-        if let captures = try? modelContext.fetch(FetchDescriptor<CaptureItem>()) {
-            found += captures
-                .filter { $0.text.localizedCaseInsensitiveContains(query) }
-                .map {
-                    SearchResult(
-                        id: $0.id,
-                        kind: .capture,
-                        title: String($0.previewText.prefix(80)),
-                        snippet: $0.text,
-                        occurredAt: $0.createdAt,
-                        origin: .local,
-                        score: Self.localScore(text: $0.text, query: query)
-                    )
-                }
+        // Предикаты уходят в SQL и приносят только подходящие строки.
+        // Раньше каждая из пяти таблиц поднималась целиком и фильтровалась
+        // в памяти дорогим сравнением с учётом локали.
+        found += fetch(
+            FetchDescriptor<CaptureItem>(
+                predicate: #Predicate { $0.text.localizedStandardContains(query) },
+                sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+            )
+        ).map {
+            SearchResult(
+                id: $0.id,
+                kind: .capture,
+                title: String($0.previewText.prefix(80)),
+                snippet: Self.snippet($0.text),
+                occurredAt: $0.createdAt,
+                origin: .local,
+                score: Self.localScore(text: $0.text, query: query)
+            )
         }
 
-        if let notes = try? modelContext.fetch(FetchDescriptor<Note>()) {
-            found += notes
-                .filter {
-                    $0.title.localizedCaseInsensitiveContains(query)
-                        || $0.body.localizedCaseInsensitiveContains(query)
-                }
-                .map {
-                    SearchResult(
-                        id: $0.id,
-                        kind: .note,
-                        title: $0.displayTitle,
-                        snippet: $0.body,
-                        occurredAt: $0.createdAt,
-                        origin: .local,
-                        score: Self.localScore(text: $0.displayTitle + " " + $0.body, query: query)
-                    )
-                }
+        found += fetch(
+            FetchDescriptor<Note>(
+                predicate: #Predicate {
+                    $0.title.localizedStandardContains(query)
+                        || $0.body.localizedStandardContains(query)
+                },
+                sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+            )
+        ).map {
+            SearchResult(
+                id: $0.id,
+                kind: .note,
+                title: $0.displayTitle,
+                snippet: Self.snippet($0.body),
+                occurredAt: $0.createdAt,
+                origin: .local,
+                score: Self.localScore(text: $0.displayTitle + " " + $0.body, query: query)
+            )
         }
 
-        if let tasks = try? modelContext.fetch(FetchDescriptor<TaskItem>()) {
-            found += tasks
-                .filter {
-                    $0.title.localizedCaseInsensitiveContains(query)
-                        || $0.details.localizedCaseInsensitiveContains(query)
-                }
-                .map {
-                    SearchResult(
-                        id: $0.id,
-                        kind: .task,
-                        title: $0.title,
-                        snippet: $0.details,
-                        occurredAt: $0.createdAt,
-                        origin: .local,
-                        score: Self.localScore(text: $0.title, query: query)
-                    )
-                }
+        found += fetch(
+            FetchDescriptor<TaskItem>(
+                predicate: #Predicate {
+                    $0.title.localizedStandardContains(query)
+                        || $0.details.localizedStandardContains(query)
+                },
+                sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+            )
+        ).map {
+            SearchResult(
+                id: $0.id,
+                kind: .task,
+                title: $0.title,
+                snippet: Self.snippet($0.details),
+                occurredAt: $0.createdAt,
+                origin: .local,
+                score: Self.localScore(text: $0.title, query: query)
+            )
         }
 
-        if let reminders = try? modelContext.fetch(FetchDescriptor<Reminder>()) {
-            found += reminders
-                .filter {
-                    $0.title.localizedCaseInsensitiveContains(query)
-                        || $0.details.localizedCaseInsensitiveContains(query)
-                }
-                .map {
-                    SearchResult(
-                        id: $0.id,
-                        kind: .reminder,
-                        title: $0.title,
-                        snippet: $0.details,
-                        occurredAt: $0.fireDate,
-                        origin: .local,
-                        score: Self.localScore(text: $0.title, query: query)
-                    )
-                }
+        found += fetch(
+            FetchDescriptor<Reminder>(
+                predicate: #Predicate {
+                    $0.title.localizedStandardContains(query)
+                        || $0.details.localizedStandardContains(query)
+                },
+                sortBy: [SortDescriptor(\.fireDate, order: .reverse)]
+            )
+        ).map {
+            SearchResult(
+                id: $0.id,
+                kind: .reminder,
+                title: $0.title,
+                snippet: Self.snippet($0.details),
+                occurredAt: $0.fireDate,
+                origin: .local,
+                score: Self.localScore(text: $0.title, query: query)
+            )
         }
 
-        if let expenses = try? modelContext.fetch(FetchDescriptor<Expense>()) {
-            found += expenses
-                .filter {
-                    $0.details.localizedCaseInsensitiveContains(query)
-                        || ($0.merchant?.localizedCaseInsensitiveContains(query) ?? false)
-                        || $0.category.displayName.localizedCaseInsensitiveContains(query)
-                }
-                .map {
-                    SearchResult(
-                        id: $0.id,
-                        kind: .expense,
-                        title: $0.details.isEmpty ? $0.category.displayName : $0.details,
-                        snippet: $0.formattedAmount,
-                        occurredAt: $0.spentAt,
-                        origin: .local,
-                        score: Self.localScore(text: $0.details, query: query)
-                    )
-                }
+        found += fetch(
+            FetchDescriptor<Expense>(
+                predicate: #Predicate {
+                    $0.details.localizedStandardContains(query)
+                        || ($0.merchant ?? "").localizedStandardContains(query)
+                },
+                sortBy: [SortDescriptor(\.spentAt, order: .reverse)]
+            )
+        ).map {
+            SearchResult(
+                id: $0.id,
+                kind: .expense,
+                title: $0.details.isEmpty ? $0.category.displayName : $0.details,
+                snippet: $0.formattedAmount,
+                occurredAt: $0.spentAt,
+                origin: .local,
+                score: Self.localScore(text: $0.details, query: query)
+            )
         }
 
         return found.sorted { left, right in
@@ -187,6 +216,21 @@ final class SearchService {
                 ? left.occurredAt > right.occurredAt
                 : left.score > right.score
         }
+    }
+
+    /// Выборка с общим ограничением по числу строк.
+    private func fetch<Model: PersistentModel>(_ descriptor: FetchDescriptor<Model>) -> [Model] {
+        var limited = descriptor
+        limited.fetchLimit = Self.localFetchLimit
+        return (try? modelContext.fetch(limited)) ?? []
+    }
+
+    /// Отрывок для карточки результата.
+    ///
+    /// В выдачу больше не кладётся весь текст записи целиком: на экране
+    /// видно две строки, а память и время уходили на всё.
+    private static func snippet(_ text: String) -> String {
+        String(text.prefix(200))
     }
 
     /// Простая оценка совпадения: точное вхождение в начале весит больше,

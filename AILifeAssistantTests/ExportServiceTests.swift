@@ -34,15 +34,15 @@ final class ExportServiceTests: XCTestCase {
         try super.tearDownWithError()
     }
 
-    private func export(_ format: ExportService.Format) throws -> URL {
-        let url = try service.export(format)
+    private func export(_ format: ExportService.Format) async throws -> URL {
+        let url = try await service.export(format)
         createdFiles.append(url)
         return url
     }
 
     // MARK: JSON
 
-    func testJSONContainsAllEntityTypes() throws {
+    func testJSONContainsAllEntityTypes() async throws {
         let capture = CaptureItem(text: "купил кофе за 300 и напомни позвонить маме")
         context.insert(capture)
         context.insert(Note(body: "идея", source: capture))
@@ -53,7 +53,7 @@ final class ExportServiceTests: XCTestCase {
         context.insert(Project(name: "Дом"))
         try context.save()
 
-        let url = try export(.json)
+        let url = try await export(.json)
         let json = try JSONSerialization.jsonObject(
             with: try Data(contentsOf: url)
         ) as? [String: Any]
@@ -71,11 +71,11 @@ final class ExportServiceTests: XCTestCase {
 
     /// Сумма едет строкой: число с плавающей точкой в JSON округляется,
     /// и копейки теряются ровно там, где терять их нельзя.
-    func testJSONKeepsExactAmount() throws {
+    func testJSONKeepsExactAmount() async throws {
         context.insert(Expense(amount: Decimal(string: "1234.56")!, currencyCode: "RUB"))
         try context.save()
 
-        let url = try export(.json)
+        let url = try await export(.json)
         let json = try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any]
         let expenses = try XCTUnwrap((json?["expenses"] as? [[String: Any]])?.first)
 
@@ -84,13 +84,13 @@ final class ExportServiceTests: XCTestCase {
 
     /// Связь записи с исходным захватом должна пережить перенос,
     /// иначе в файле окажется набор сущностей без истории.
-    func testJSONKeepsLinkToCapture() throws {
+    func testJSONKeepsLinkToCapture() async throws {
         let capture = CaptureItem(text: "напомни позвонить")
         context.insert(capture)
         context.insert(Reminder(title: "позвонить", fireDate: .now.addingTimeInterval(600), source: capture))
         try context.save()
 
-        let url = try export(.json)
+        let url = try await export(.json)
         let json = try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any]
         let reminder = try XCTUnwrap((json?["reminders"] as? [[String: Any]])?.first)
 
@@ -99,7 +99,7 @@ final class ExportServiceTests: XCTestCase {
 
     // MARK: CSV
 
-    func testCSVHasHeaderAndRows() throws {
+    func testCSVHasHeaderAndRows() async throws {
         // Время задаётся явно: строки сортируются по дате траты,
         // и при одинаковом времени порядок между ними не определён,
         // отчего тест падал бы через раз безотносительно к коду.
@@ -126,7 +126,7 @@ final class ExportServiceTests: XCTestCase {
         )
         try context.save()
 
-        let url = try export(.csv)
+        let url = try await export(.csv)
         let text = try String(contentsOf: url, encoding: .utf8)
         let lines = text.components(separatedBy: "\n").filter { !$0.isEmpty }
 
@@ -138,11 +138,11 @@ final class ExportServiceTests: XCTestCase {
 
     /// Описание траты вполне может содержать запятую, и без экранирования
     /// файл разъедется на лишние колонки.
-    func testCSVEscapesCommas() throws {
+    func testCSVEscapesCommas() async throws {
         context.insert(Expense(amount: 700, currencyCode: "RUB", details: "кофе, булочка и сок"))
         try context.save()
 
-        let url = try export(.csv)
+        let url = try await export(.csv)
         let text = try String(contentsOf: url, encoding: .utf8)
 
         XCTAssertTrue(
@@ -153,26 +153,26 @@ final class ExportServiceTests: XCTestCase {
 
     /// Метка кодировки в начале файла: без неё Excel открывает кириллицу
     /// кракозябрами, и выгрузка выглядит испорченной, хотя данные целы.
-    func testCSVStartsWithByteOrderMark() throws {
+    func testCSVStartsWithByteOrderMark() async throws {
         context.insert(Expense(amount: 100, details: "тест"))
         try context.save()
 
-        let url = try export(.csv)
+        let url = try await export(.csv)
         let data = try Data(contentsOf: url)
 
         XCTAssertEqual(Array(data.prefix(3)), [0xEF, 0xBB, 0xBF])
     }
 
-    func testEmptyDatabaseExportsValidFile() throws {
-        let url = try export(.json)
+    func testEmptyDatabaseExportsValidFile() async throws {
+        let url = try await export(.json)
         let json = try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any]
 
         XCTAssertNotNil(json)
         XCTAssertEqual((json?["captures"] as? [Any])?.count, 0)
     }
 
-    func testFileNameCarriesExtension() throws {
-        XCTAssertEqual(try export(.json).pathExtension, "json")
-        XCTAssertEqual(try export(.csv).pathExtension, "csv")
+    func testFileNameCarriesExtension() async throws {
+        XCTAssertEqual(try await export(.json).pathExtension, "json")
+        XCTAssertEqual(try await export(.csv).pathExtension, "csv")
     }
 }

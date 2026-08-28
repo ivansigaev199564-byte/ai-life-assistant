@@ -141,9 +141,27 @@ final class CaptureItem {
         set { parsingEngineRaw = newValue?.rawValue }
     }
 
+    /// Порог уверенности, ниже которого разбор считается сомнительным.
+    static let reviewConfidenceThreshold = 0.7
+
     /// Разбор дал неуверенный результат: запись стоит показать пользователю.
     var needsReview: Bool {
-        parsedAt != nil && parseConfidence > 0 && parseConfidence < 0.7
+        parsedAt != nil && parseConfidence > 0 && parseConfidence < Self.reviewConfidenceThreshold
+    }
+
+    /// То же правило для выборок из базы.
+    ///
+    /// Одно место на всё приложение: раньше условие было переписано вручную
+    /// в двух экранах и разъехалось бы при первом же изменении порога.
+    /// Считать его перебором всей таблицы тем более нельзя: на двух тысячах
+    /// записей это секундный фриз на каждую перерисовку.
+    static var needsReviewPredicate: Predicate<CaptureItem> {
+        let threshold = reviewConfidenceThreshold
+        return #Predicate<CaptureItem> { capture in
+            capture.parsedAt != nil
+                && capture.parseConfidence > 0
+                && capture.parseConfidence < threshold
+        }
     }
 
     // MARK: Производные значения
