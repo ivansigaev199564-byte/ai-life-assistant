@@ -38,6 +38,7 @@ struct SettingsView: View {
                     recognitionSection(settings: settings)
                     captureSection(settings: settings)
                     integrationsSection
+                    AccountSection()
                     securitySection
                     deviceSection
                     dataSection

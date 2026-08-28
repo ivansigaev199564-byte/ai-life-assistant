@@ -54,7 +54,7 @@ struct SupabaseRESTClient: Sendable {
     // MARK: Операции
 
     /// Отправляет записи, обновляя существующие по первичному ключу.
-    func upsert<Payload: Encodable>(_ payloads: [Payload], into table: String) async throws {
+    func upsert<Payload: Encodable & Sendable>(_ payloads: [Payload], into table: String) async throws {
         guard !payloads.isEmpty else { return }
 
         var request = try makeRequest(path: table, method: "POST")
@@ -94,7 +94,7 @@ struct SupabaseRESTClient: Sendable {
     }
 
     /// Забирает записи, изменившиеся после указанного момента.
-    func fetchChanges<Payload: Decodable>(
+    func fetchChanges<Payload: Decodable & Sendable>(
         from table: String,
         since: Date?,
         limit: Int = 500
