@@ -60,7 +60,24 @@ final class RemainingFixesTests: XCTestCase {
 
         await queue.retry(capture)
 
+        XCTAssertEqual(capture.expenses.count, 1, "Повторный разбор не должен плодить копии")
         XCTAssertEqual(capture.expenses.first?.amount, 64, "Разбор не должен спорить с человеком")
+    }
+
+    /// Идентификаторы элементов разбора между прогонами не совпадают,
+    /// и «Разобрать заново» создавало вторую копию каждой записи.
+    func testReparsingUpdatesInsteadOfDuplicating() async throws {
+        let queue = ProcessingQueue(modelContext: context, pipeline: ParsingPipeline())
+
+        let capture = CaptureItem(text: "купил кофе за 300 рублей")
+        context.insert(capture)
+        try context.save()
+
+        await queue.processPending()
+        XCTAssertEqual(capture.expenses.count, 1)
+
+        await queue.retry(capture)
+        XCTAssertEqual(capture.expenses.count, 1, "После повторного разбора расход остаётся один")
     }
 
     // MARK: Имена
