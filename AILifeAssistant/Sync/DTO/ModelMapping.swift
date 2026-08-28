@@ -6,15 +6,19 @@ import SwiftData
 /// Правило применения одно на все типы: серверная копия принимается,
 /// только если она новее локальной. Иначе синхронизация затирала бы
 /// правку, сделанную на телефоне секунду назад, данными недельной давности.
+///
+/// Идентификатор пользователя приходит снаружи и подставляется в каждое
+/// представление. Раньше он был жёстко записан пустым, а колонка на сервере
+/// объявлена обязательной: отправка не могла пройти ни разу.
 
 // MARK: Захват
 
 extension CaptureItem {
 
-    var dto: CaptureDTO {
+    func dto(userID: UUID?) -> CaptureDTO {
         CaptureDTO(
             id: id,
-            userId: nil,
+            userId: userID,
             text: text,
             source: source.rawValue,
             status: status.rawValue,
@@ -79,10 +83,10 @@ extension CaptureItem {
 
 extension Note {
 
-    var dto: NoteDTO {
+    func dto(userID: UUID?) -> NoteDTO {
         NoteDTO(
             id: id,
-            userId: nil,
+            userId: userID,
             captureId: source?.id,
             parsedItemId: parsedItemID,
             title: title,
@@ -137,10 +141,10 @@ extension Note {
 
 extension TaskItem {
 
-    var dto: TaskDTO {
+    func dto(userID: UUID?) -> TaskDTO {
         TaskDTO(
             id: id,
-            userId: nil,
+            userId: userID,
             captureId: source?.id,
             parsedItemId: parsedItemID,
             title: title,
@@ -204,10 +208,10 @@ extension TaskItem {
 
 extension Reminder {
 
-    var dto: ReminderDTO {
+    func dto(userID: UUID?) -> ReminderDTO {
         ReminderDTO(
             id: id,
-            userId: nil,
+            userId: userID,
             captureId: source?.id,
             parsedItemId: parsedItemID,
             title: title,
@@ -274,10 +278,10 @@ extension Reminder {
 
 extension Expense {
 
-    var dto: ExpenseDTO {
+    func dto(userID: UUID?) -> ExpenseDTO {
         ExpenseDTO(
             id: id,
-            userId: nil,
+            userId: userID,
             captureId: source?.id,
             parsedItemId: parsedItemID,
             // Сумма уезжает строкой: перевод через число с плавающей
@@ -342,10 +346,10 @@ extension Expense {
 
 extension Person {
 
-    var dto: PersonDTO {
+    func dto(userID: UUID?) -> PersonDTO {
         PersonDTO(
             id: id,
-            userId: nil,
+            userId: userID,
             name: name,
             normalizedName: normalizedName,
             aliases: aliases,
@@ -391,10 +395,10 @@ extension Person {
 
 extension Project {
 
-    var dto: ProjectDTO {
+    func dto(userID: UUID?) -> ProjectDTO {
         ProjectDTO(
             id: id,
-            userId: nil,
+            userId: userID,
             name: name,
             normalizedName: normalizedName,
             aliases: aliases,

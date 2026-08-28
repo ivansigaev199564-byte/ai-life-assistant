@@ -11,6 +11,10 @@ struct TimelineView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(ProcessingQueue.self) private var processingQueue
 
+    /// Единственный путь удаления: он же сообщает синхронизации.
+    /// Отсутствует в предпросмотре.
+    @Environment(DeletionService.self) private var deletion: DeletionService?
+
     @Query(sort: \CaptureItem.createdAt, order: .reverse)
     private var captures: [CaptureItem]
 
@@ -302,38 +306,12 @@ struct TimelineView: View {
 
     private func deleteSelected() {
         let selected = captures.filter { selectedIDs.contains($0.id) }
-        let store = RecordingStore()
-
-        for capture in selected {
-            // Аудиофайлы живут вне базы и удаляются отдельно, иначе
-            // занятое место останется, а записей уже не будет.
-            if let fileName = capture.audioFileName {
-                store.delete(fileName: fileName)
-            }
-            modelContext.delete(capture)
-        }
-
-        do {
-            try modelContext.save()
-            Log.data.notice("Удалено записей: \(selected.count)")
-        } catch {
-            Log.data.error("Массовое удаление не сохранилось: \(error.localizedDescription)")
-        }
-
+        deletion?.delete(selected)
         stopSelecting()
     }
 
     private func delete(_ capture: CaptureItem) {
-        // Аудиофайл живёт вне базы, поэтому удаляется отдельно.
-        if let fileName = capture.audioFileName {
-            RecordingStore().delete(fileName: fileName)
-        }
-        modelContext.delete(capture)
-        do {
-            try modelContext.save()
-        } catch {
-            Log.data.error("Не удалось удалить захват: \(error.localizedDescription)")
-        }
+        deletion?.delete(capture)
     }
 }
 

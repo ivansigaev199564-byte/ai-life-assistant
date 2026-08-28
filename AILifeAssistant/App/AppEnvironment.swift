@@ -33,6 +33,7 @@ final class AppEnvironment {
     let reminderMirror: ReminderMirror
     let undoService: UndoService
     let completionService: CompletionService
+    let deletionService: DeletionService
     let liveActivity: LiveActivityController
     let notificationRouter: NotificationRouter
     let appLock: AppLock
@@ -91,7 +92,10 @@ final class AppEnvironment {
             modelContext: container.mainContext,
             queue: syncQueue,
             networkMonitor: networkMonitor,
-            sessionProvider: { auth.accessToken }
+            sessionProvider: {
+                guard let token = auth.accessToken, let userID = auth.userID else { return nil }
+                return SyncEngine.Session(accessToken: token, userID: userID)
+            }
         )
         self.searchService = SearchService(
             modelContext: container.mainContext,
@@ -159,6 +163,23 @@ final class AppEnvironment {
             sync.markChanged(entityType, id: id)
         }
         self.completionService = completion
+
+        // Удаление: один путь на всё приложение, и сервер о нём узнаёт.
+        let deletion = DeletionService(
+            modelContext: container.mainContext,
+            mirror: mirror
+        )
+        deletion.onDeleted = { entityType, id in
+            sync.markDeleted(entityType, id: id)
+        }
+        self.deletionService = deletion
+        undo.deletion = deletion
+
+        // Выход из аккаунта не должен оставлять следующему пользователю
+        // очередь отправки и курсор от чужой сессии.
+        auth.onSignOut = { [weak sync] in
+            sync?.forgetSession()
+        }
 
         // Разбор породил сущности: их нужно отправить на сервер
         // и превратить напоминания в реальные уведомления.
@@ -236,6 +257,7 @@ final class AppEnvironment {
         let permissions: PermissionsManager
         let processingQueue: ProcessingQueue
         let completionService: CompletionService
+        let deletionService: DeletionService
     }
 
     static func makeForTesting() -> Testing {
@@ -266,6 +288,7 @@ final class AppEnvironment {
             modelContext: container.mainContext,
             settings: settings
         )
+        let deletion = DeletionService(modelContext: container.mainContext)
 
         return Testing(
             container: container,
@@ -273,7 +296,8 @@ final class AppEnvironment {
             settings: settings,
             permissions: permissions,
             processingQueue: queue,
-            completionService: completion
+            completionService: completion,
+            deletionService: deletion
         )
     }
 }

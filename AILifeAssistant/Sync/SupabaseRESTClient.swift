@@ -69,6 +69,30 @@ struct SupabaseRESTClient: Sendable {
         _ = try await send(request)
     }
 
+    /// Помечает записи удалёнными.
+    ///
+    /// Не физическое удаление: второе устройство должно узнать о том,
+    /// что записи больше нет, а строка без отметки выглядит для него
+    /// просто как ещё не приехавшая.
+    func markDeleted(ids: Set<UUID>, in table: String) async throws {
+        guard !ids.isEmpty else { return }
+
+        let list = ids.map(\.uuidString).joined(separator: ",")
+        var request = try makeRequest(
+            path: table,
+            method: "PATCH",
+            queryItems: [URLQueryItem(name: "id", value: "in.(\(list))")]
+        )
+        request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+
+        let now = Self.formatter.string(from: .now)
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: ["deleted_at": now, "updated_at": now]
+        )
+
+        _ = try await send(request)
+    }
+
     /// Забирает записи, изменившиеся после указанного момента.
     func fetchChanges<Payload: Decodable>(
         from table: String,

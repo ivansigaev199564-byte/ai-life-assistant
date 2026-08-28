@@ -9,6 +9,7 @@ struct ProjectDetailView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(DeletionService.self) private var deletion: DeletionService?
 
     let project: Project
 
@@ -254,8 +255,12 @@ struct ProjectDetailView: View {
     /// Удаление проекта не трогает записи: человек убирает папку,
     /// а не выбрасывает всё, что в ней лежало.
     private func deleteProject() {
-        modelContext.delete(project)
-        try? modelContext.save()
+        if let deletion {
+            deletion.delete(project)
+        } else {
+            modelContext.delete(project)
+            try? modelContext.save()
+        }
         dismiss()
     }
 }
