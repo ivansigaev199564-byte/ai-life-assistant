@@ -34,6 +34,7 @@ final class AppEnvironment {
     let undoService: UndoService
     let completionService: CompletionService
     let deletionService: DeletionService
+    let changeTracker: ChangeTracker
     let liveActivity: LiveActivityController
     let notificationRouter: NotificationRouter
     let appLock: AppLock
@@ -184,6 +185,11 @@ final class AppEnvironment {
         self.deletionService = deletion
         undo.deletion = deletion
 
+        // Правки с экранов доходят до сервера через один и тот же путь.
+        self.changeTracker = ChangeTracker { entityType, id in
+            sync.markChanged(entityType, id: id)
+        }
+
         // Выход из аккаунта не должен оставлять следующему пользователю
         // очередь отправки и курсор от чужой сессии.
         auth.onSignOut = { [weak sync] in
@@ -267,6 +273,7 @@ final class AppEnvironment {
         let processingQueue: ProcessingQueue
         let completionService: CompletionService
         let deletionService: DeletionService
+    let changeTracker: ChangeTracker
     }
 
     static func makeForTesting() -> Testing {

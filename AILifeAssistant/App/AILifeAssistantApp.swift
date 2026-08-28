@@ -43,6 +43,7 @@ struct AILifeAssistantApp: App {
                     .environment(environment.auth)
                     .environment(environment.syncEngine)
                     .environment(environment.networkMonitor)
+                    .environment(environment.changeTracker)
                     .environment(\.capabilities, environment.capabilities)
                     .modelContainer(environment.container)
             }
