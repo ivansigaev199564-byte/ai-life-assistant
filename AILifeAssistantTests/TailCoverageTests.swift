@@ -137,6 +137,10 @@ final class TailCoverageTests: XCTestCase {
 
     /// Очередь переживает перезапуск: порядок операций важен, потому что
     /// удаление, обогнавшее создание, оставит на сервере лишнюю строку.
+    ///
+    /// Очередь живёт на главном акторе, как и всё, что трогает состояние
+    /// синхронизации.
+    @MainActor
     func testQueueKeepsOrderAcrossRestart() throws {
         let fileName = "sync-queue-order-\(UUID().uuidString).json"
         let queue = SyncQueue(fileName: fileName)
