@@ -130,6 +130,15 @@ final class AppEnvironment {
             sync.markDeleted(.capture, id: id)
         }
 
+        // Возврат сети это повод не только синхронизироваться, но и
+        // дорасшифровать: у облачного разбора могли остаться записи,
+        // отложенные из-за отсутствия связи.
+        networkMonitor.whenBecameOnline { [weak queue] in
+            Task { @MainActor in
+                await queue?.processPending()
+            }
+        }
+
         // Восстановленную запись нужно разобрать заново: вернулась она
         // пустой, без задач и расходов.
         undo.onCaptureRestored = { [weak queue] id in

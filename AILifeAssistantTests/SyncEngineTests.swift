@@ -127,7 +127,11 @@ final class SyncEngineTests: XCTestCase {
 
         let sent = try XCTUnwrap(transport.upserts.first)
         XCTAssertEqual(sent.table, "captures")
-        XCTAssertEqual(sent.json.first?["user_id"] as? String, owner.uuidString.lowercased())
+        // Регистр не важен: сервер сравнивает идентификаторы как uuid.
+        XCTAssertEqual(
+            (sent.json.first?["user_id"] as? String)?.lowercased(),
+            owner.uuidString.lowercased()
+        )
     }
 
     /// Удаления молча отбрасывались: не отправлялись, не завершались

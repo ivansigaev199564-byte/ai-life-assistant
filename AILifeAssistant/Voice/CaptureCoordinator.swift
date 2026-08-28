@@ -37,8 +37,12 @@ final class CaptureCoordinator {
     private(set) var liveTranscript: String = ""
     /// Сколько идёт текущая запись.
     private(set) var elapsed: TimeInterval = 0
-    /// Последний сохранённый захват, нужен для баннера отмены на Этапе 5.
-    private(set) var lastSavedCapture: CaptureItem?
+    /// Последняя сохранённая запись.
+    ///
+    /// Именно идентификатор, а не объект: разбор и интерфейс живут дольше
+    /// одной сессии, а объект SwiftData, переживший свой контекст, роняет
+    /// приложение при первом же обращении.
+    private(set) var lastSavedCaptureID: UUID?
     /// Слышал ли детектор речь: по этому флагу UI подсказывает «говорите громче».
     private(set) var hasDetectedSpeech = false
 
@@ -280,7 +284,7 @@ final class CaptureCoordinator {
             return nil
         }
 
-        lastSavedCapture = capture
+        lastSavedCaptureID = capture.id
         onCaptureSaved?(capture)
         return capture
     }
@@ -502,7 +506,7 @@ private extension CaptureCoordinator {
 
                 modelContext.insert(capture)
                 if save(context: "запись без расшифровки") {
-                    lastSavedCapture = capture
+                    lastSavedCaptureID = capture.id
                 } else {
                     modelContext.delete(capture)
                 }
@@ -562,7 +566,7 @@ private extension CaptureCoordinator {
             return false
         }
 
-        lastSavedCapture = capture
+        lastSavedCaptureID = capture.id
         liveTranscript = text
         recordingURL = nil
 

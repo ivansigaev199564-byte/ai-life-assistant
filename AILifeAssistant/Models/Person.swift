@@ -93,11 +93,39 @@ final class Person {
 
         if left == right { return true }
 
-        let shortest = min(left.count, right.count)
-        guard shortest >= 4 else { return false }
+        // Сравнение по «первым N минус одна букве» склеивало разных людей:
+        // у «Марка» и «Мары» совпадали первые три буквы, и записи уходили
+        // не туда. Теперь отбрасывается не последняя буква подряд, а именно
+        // падежное окончание.
+        let leftStem = stem(of: left)
+        let rightStem = stem(of: right)
 
-        let stemLength = shortest - 1
-        return left.prefix(stemLength) == right.prefix(stemLength)
+        guard leftStem.count >= 3, rightStem.count >= 3 else { return false }
+        return leftStem == rightStem
+    }
+
+    /// Основа имени без падежного окончания.
+    ///
+    /// Полностью различить имена без словаря нельзя: «Даня» и «Дана»
+    /// отличаются той же гласной, что «Миша» и «Мише». Здесь выбран
+    /// разбор в пользу объединения падежей, потому что человек, увидевший
+    /// две карточки одного знакомого, объединит их руками, а вот незамеченное
+    /// расщепление истории заметить нечем.
+    private static let caseEndings = ["ою", "ей", "ой", "ом", "ем", "ю", "я", "е", "у", "ы", "и", "а"]
+
+    static func stem(of name: String) -> String {
+        var result = name
+
+        for ending in caseEndings where result.count > ending.count + 2 && result.hasSuffix(ending) {
+            result = String(result.dropLast(ending.count))
+            break
+        }
+
+        // Мягкий знак на конце основы к делу не относится: «Игорь»
+        // и «Игорю» это один человек.
+        if result.hasSuffix("ь") { result = String(result.dropLast()) }
+
+        return result
     }
 
     /// Нормализация: нижний регистр, без диакритики и лишних пробелов.

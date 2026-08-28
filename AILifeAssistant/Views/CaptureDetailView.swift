@@ -15,6 +15,7 @@ struct CaptureDetailView: View {
 
     @State private var isEditingText = false
     @State private var draftText = ""
+    @State private var isReparsing = false
 
     var body: some View {
         ScrollView {
@@ -97,13 +98,28 @@ struct CaptureDetailView: View {
                             .foregroundStyle(DS.Palette.danger)
                     }
 
+                    // Кнопка молчала: нажатие ничего не показывало, а при
+                    // исчерпанных попытках не делало и вовсе ничего.
                     Button {
-                        Task { await processingQueue.retry(capture) }
+                        isReparsing = true
+                        Task {
+                            await processingQueue.retry(capture)
+                            isReparsing = false
+                        }
                     } label: {
-                        Label("Разобрать заново", systemImage: "arrow.clockwise")
-                            .font(DS.Font.caption)
+                        if isReparsing {
+                            HStack(spacing: DS.Spacing.xs) {
+                                ProgressView().controlSize(.small)
+                                Text("Разбираю")
+                                    .font(DS.Font.caption)
+                            }
+                        } else {
+                            Label("Разобрать заново", systemImage: "arrow.clockwise")
+                                .font(DS.Font.caption)
+                        }
                     }
                     .foregroundStyle(DS.Palette.accent)
+                    .disabled(isReparsing)
                 }
             }
         }

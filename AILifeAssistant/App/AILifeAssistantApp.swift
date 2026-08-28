@@ -42,6 +42,7 @@ struct AILifeAssistantApp: App {
                     .environment(environment.deletionService)
                     .environment(environment.auth)
                     .environment(environment.syncEngine)
+                    .environment(environment.networkMonitor)
                     .environment(\.capabilities, environment.capabilities)
                     .modelContainer(environment.container)
             }

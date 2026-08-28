@@ -77,7 +77,7 @@ final class SyncEngine {
         }
         self.lastSyncedAt = UserDefaults.standard.object(forKey: Self.lastSyncKey) as? Date
 
-        networkMonitor.onBecameOnline = { [weak self] in
+        networkMonitor.whenBecameOnline { [weak self] in
             guard let self else { return }
             // Прошлые неудачи были из-за отсутствия связи, а не из-за данных.
             self.queue.resetAttempts()
