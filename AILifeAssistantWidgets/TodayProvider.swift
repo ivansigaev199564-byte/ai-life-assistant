@@ -104,13 +104,22 @@ struct TodayProvider: TimelineProvider {
 
         // Задачи со сроком на сегодня и раньше, плюс задачи без срока:
         // они всё равно ждут своей очереди и должны попадаться на глаза.
+        // Условие только по закрытости: подставить значение вместо nil
+        // внутри предиката SwiftData не может, поэтому срок сравнивается
+        // уже на поднятых строках. Их немного: лимит и сортировка по сроку
+        // ставят ближайшие дела первыми.
         var taskDescriptor = FetchDescriptor<TaskItem>(
-            predicate: #Predicate { !$0.isCompleted && ($0.dueDate == nil || ($0.dueDate ?? endOfDay) <= endOfDay) },
+            predicate: #Predicate { !$0.isCompleted },
             sortBy: [SortDescriptor(\.dueDate, order: .forward)]
         )
         taskDescriptor.fetchLimit = Self.fetchLimit
 
-        items += ((try? context.fetch(taskDescriptor)) ?? []).map {
+        items += ((try? context.fetch(taskDescriptor)) ?? [])
+            .filter { task in
+                guard let dueDate = task.dueDate else { return true }
+                return dueDate <= endOfDay
+            }
+            .map {
             TodayItem(
                 id: $0.id,
                 title: $0.title,
