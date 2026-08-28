@@ -193,10 +193,11 @@ final class SearchService {
 
         found += fetch(
             FetchDescriptor<Expense>(
-                predicate: #Predicate {
-                    $0.details.localizedStandardContains(query)
-                        || ($0.merchant ?? "").localizedStandardContains(query)
-                },
+                // Только по описанию: генератор SQL в SwiftData не умеет
+                // подставлять значение вместо nil внутри условия и падает
+                // на опциональном названии места. Поиск по мерчанту вернётся
+                // отдельным полем модели.
+                predicate: #Predicate { $0.details.localizedStandardContains(query) },
                 sortBy: [SortDescriptor(\.spentAt, order: .reverse)]
             )
         ).map {
