@@ -256,6 +256,14 @@ private extension ExportService {
             }
     }
 
+}
+
+// MARK: - Экранирование
+
+/// Не в приватном расширении: правило экранирования проверяется тестами,
+/// потому что от него зависит, исполнит ли Excel текст из выгрузки.
+extension ExportService {
+
     /// Экранирование поля: описание траты вполне может содержать запятую.
     static func escape(_ field: String) -> String {
         var value = field
