@@ -29,22 +29,6 @@ struct VoiceActivityDetector {
         /// Сколько ждать первого звука, прежде чем закрыть сессию.
         var leadingSilenceTimeout: TimeInterval = 4
 
-        /// Сколько времени в начале сессии слушать фон, чтобы понять,
-        /// насколько вокруг шумно.
-        var noiseWindow: TimeInterval = 0.3
-
-        /// Во сколько раз речь должна быть громче измеренного фона.
-        ///
-        /// Пороги были заданы абсолютными числами, и это ломало запись
-        /// в обе стороны: на улице шум перекрывал порог речи и автостоп
-        /// не срабатывал никогда, а тихий сигнал Bluetooth-гарнитуры
-        /// до порога не дотягивал, и запись обрывалась через четыре
-        /// секунды с «речь не распознана».
-        var speechOverNoise: Float = 3.0
-
-        /// Во сколько раз тишина должна быть громче фона.
-        var silenceOverNoise: Float = 1.6
-
         static let `default` = Configuration()
 
         /// Более терпеливый режим для длинных надиктовок.
@@ -74,10 +58,6 @@ struct VoiceActivityDetector {
     /// Момент запуска, задаётся первым вызовом process.
     private var startTime: TimeInterval?
 
-    /// Замеры фона в первые доли секунды сессии.
-    private var noiseSamples: [Float] = []
-    /// Измеренный шумовой пол. Пока не измерен, работают пороги из настроек.
-    private var noiseFloor: Float?
     /// Когда впервые услышали речь.
     private var speechStartTime: TimeInterval?
     /// Когда началась текущая пауза.
@@ -119,18 +99,8 @@ struct VoiceActivityDetector {
             return .stop(.maxDuration)
         }
 
-        // Первые доли секунды слушаем фон: пороги должны считаться от него,
-        // а не от абсолютного числа, одинакового для тихой комнаты,
-        // шумной улицы и гарнитуры.
-        if speechStartTime == nil, elapsed <= configuration.noiseWindow {
-            noiseSamples.append(level)
-        } else if noiseFloor == nil, !noiseSamples.isEmpty {
-            noiseFloor = Self.median(of: noiseSamples)
-            noiseSamples = []
-        }
-
-        let isSpeech = level >= speechThreshold
-        let isSilence = level < silenceThreshold
+        let isSpeech = level >= configuration.speechThreshold
+        let isSilence = level < configuration.silenceThreshold
 
         if isSpeech {
             if speechStartTime == nil { speechStartTime = timestamp }
@@ -168,33 +138,6 @@ struct VoiceActivityDetector {
         return .pausing
     }
 
-    /// Порог речи: не ниже настроенного и заметно выше измеренного фона.
-    private var speechThreshold: Float {
-        guard let noiseFloor else { return configuration.speechThreshold }
-        return max(configuration.speechThreshold * 0.4, noiseFloor * configuration.speechOverNoise)
-    }
-
-    /// Порог тишины держится ниже порога речи: иначе детектор дребезжит
-    /// на границе.
-    private var silenceThreshold: Float {
-        guard let noiseFloor else { return configuration.silenceThreshold }
-        return min(
-            speechThreshold * 0.7,
-            max(configuration.silenceThreshold * 0.4, noiseFloor * configuration.silenceOverNoise)
-        )
-    }
-
-    /// Медиана устойчивее среднего: одиночный хлопок дверью не должен
-    /// поднимать порог на всю сессию.
-    private static func median(of samples: [Float]) -> Float {
-        guard !samples.isEmpty else { return 0 }
-        let sorted = samples.sorted()
-        let middle = sorted.count / 2
-        return sorted.count % 2 == 0
-            ? (sorted[middle - 1] + sorted[middle]) / 2
-            : sorted[middle]
-    }
-
     /// Сброс состояния для повторного использования детектора.
     mutating func reset() {
         startTime = nil
@@ -204,7 +147,5 @@ struct VoiceActivityDetector {
         accumulatedSpeech = 0
         peakLevel = 0
         isFinished = false
-        noiseSamples = []
-        noiseFloor = nil
     }
 }
