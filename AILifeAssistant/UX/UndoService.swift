@@ -39,6 +39,10 @@ final class UndoService {
     private let modelContext: ModelContext
     private var dismissTask: Task<Void, Never>?
 
+    /// Общий сервис удаления. Отсутствует в тестах, которые проверяют
+    /// сам баннер, а не путь удаления.
+    var deletion: DeletionService?
+
     /// Вызывается, когда действие отменено: интерфейс обновляет списки,
     /// а синхронизация узнаёт, что запись исчезла.
     var onUndone: ((Action) -> Void)?
@@ -136,23 +140,21 @@ final class UndoService {
     }
 
     private func undoCapture(id: UUID) {
-        let descriptor = FetchDescriptor<CaptureItem>(predicate: #Predicate { $0.id == id })
+        var descriptor = FetchDescriptor<CaptureItem>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
 
         guard let capture = try? modelContext.fetch(descriptor).first else { return }
 
-        // Аудиофайл живёт вне базы, удаляется отдельно.
-        if let fileName = capture.audioFileName {
-            RecordingStore().delete(fileName: fileName)
+        // Через общий сервис: он же снимает уведомления, убирает аудиофайл
+        // и сообщает синхронизации.
+        if let deletion {
+            deletion.delete(capture)
+        } else {
+            modelContext.delete(capture)
+            try? modelContext.save()
         }
 
-        modelContext.delete(capture)
-
-        do {
-            try modelContext.save()
-            Log.ui.notice("Запись отменена пользователем")
-        } catch {
-            Log.data.error("Отмена записи не сохранилась: \(error.localizedDescription)")
-        }
+        Log.ui.notice("Запись отменена пользователем")
     }
 
     // MARK: Текст баннера

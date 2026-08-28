@@ -11,6 +11,11 @@ import XCTest
 @MainActor
 final class ModelMappingTests: XCTestCase {
 
+    /// Владелец записи: колонка на сервере обязательная, и раньше сюда
+    /// уходил пустой идентификатор, из-за чего отправка не могла пройти.
+    private static let owner = UUID()
+
+
     private var container: ModelContainer!
     private var context: ModelContext!
 
@@ -42,7 +47,7 @@ final class ModelMappingTests: XCTestCase {
         capture.parsingEngine = .cloud
         context.insert(capture)
 
-        let dto = capture.dto
+        let dto = capture.dto(userID: Self.owner)
 
         XCTAssertEqual(dto.id, capture.id)
         XCTAssertEqual(dto.text, "купил кофе за 300")
@@ -65,7 +70,7 @@ final class ModelMappingTests: XCTestCase {
         capture.updatedAt = Date(timeIntervalSince1970: 1_700_000_000)
         context.insert(capture)
 
-        var dto = capture.dto
+        var dto = capture.dto(userID: Self.owner)
         dto.text = "новый текст"
         dto.updatedAt = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -81,7 +86,7 @@ final class ModelMappingTests: XCTestCase {
         capture.updatedAt = Date(timeIntervalSince1970: 1_800_000_000)
         context.insert(capture)
 
-        var dto = capture.dto
+        var dto = capture.dto(userID: Self.owner)
         dto.text = "устаревшее с сервера"
         dto.updatedAt = Date(timeIntervalSince1970: 1_700_000_000)
 
@@ -102,7 +107,7 @@ final class ModelMappingTests: XCTestCase {
         )
         context.insert(expense)
 
-        let dto = expense.dto
+        let dto = expense.dto(userID: Self.owner)
         XCTAssertEqual(dto.amount, "1234.56")
 
         let restored = Expense.make(from: dto)
@@ -114,7 +119,7 @@ final class ModelMappingTests: XCTestCase {
         let expense = Expense(amount: Decimal(string: "9999999.99")!, currencyCode: "USD")
         context.insert(expense)
 
-        let restored = Expense.make(from: expense.dto)
+        let restored = Expense.make(from: expense.dto(userID: Self.owner))
         XCTAssertEqual(restored.amount, Decimal(string: "9999999.99"))
     }
 
@@ -127,7 +132,7 @@ final class ModelMappingTests: XCTestCase {
         person.updatedAt = Date(timeIntervalSince1970: 1_700_000_000)
         context.insert(person)
 
-        var dto = person.dto
+        var dto = person.dto(userID: Self.owner)
         dto.aliases = ["Мишу", "Михаил"]
         dto.updatedAt = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -145,7 +150,7 @@ final class ModelMappingTests: XCTestCase {
         person.updatedAt = Date(timeIntervalSince1970: 1_700_000_000)
         context.insert(person)
 
-        var dto = person.dto
+        var dto = person.dto(userID: Self.owner)
         dto.mentionCount = 3
         dto.updatedAt = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -160,7 +165,7 @@ final class ModelMappingTests: XCTestCase {
         task.toggleCompletion()
         context.insert(task)
 
-        let restored = TaskItem.make(from: task.dto)
+        let restored = TaskItem.make(from: task.dto(userID: Self.owner))
         XCTAssertTrue(restored.isCompleted)
         XCTAssertNotNil(restored.completedAt)
         XCTAssertEqual(restored.priority, .high)
@@ -171,7 +176,7 @@ final class ModelMappingTests: XCTestCase {
         let reminder = Reminder(title: "Позвонить", fireDate: fireDate)
         context.insert(reminder)
 
-        let restored = Reminder.make(from: reminder.dto)
+        let restored = Reminder.make(from: reminder.dto(userID: Self.owner))
         XCTAssertEqual(restored.fireDate.timeIntervalSince1970, fireDate.timeIntervalSince1970, accuracy: 1)
     }
 
@@ -179,8 +184,35 @@ final class ModelMappingTests: XCTestCase {
         let note = Note(body: "мысль", tags: ["review", "идея"], needsReview: true)
         context.insert(note)
 
-        let restored = Note.make(from: note.dto)
+        let restored = Note.make(from: note.dto(userID: Self.owner))
         XCTAssertEqual(Set(restored.tags), Set(["review", "идея"]))
         XCTAssertTrue(restored.needsReview)
+    }
+
+    // MARK: Владелец
+
+    /// Колонка user_id на сервере обязательная, а клиент отправлял пустое
+    /// значение: ни одна запись не могла уехать в принципе.
+    func testDTOCarriesOwner() {
+        let capture = CaptureItem(text: "купил кофе за 300")
+        XCTAssertEqual(capture.dto(userID: Self.owner).userId, Self.owner)
+
+        let note = Note(title: "Идея", body: "проверить гипотезу")
+        XCTAssertEqual(note.dto(userID: Self.owner).userId, Self.owner)
+
+        let task = TaskItem(title: "Позвонить в банк")
+        XCTAssertEqual(task.dto(userID: Self.owner).userId, Self.owner)
+
+        let reminder = Reminder(title: "Витамины", fireDate: .now)
+        XCTAssertEqual(reminder.dto(userID: Self.owner).userId, Self.owner)
+
+        let expense = Expense(amount: 300)
+        XCTAssertEqual(expense.dto(userID: Self.owner).userId, Self.owner)
+
+        let person = Person(name: "Миша")
+        XCTAssertEqual(person.dto(userID: Self.owner).userId, Self.owner)
+
+        let project = Project(name: "Ремонт")
+        XCTAssertEqual(project.dto(userID: Self.owner).userId, Self.owner)
     }
 }

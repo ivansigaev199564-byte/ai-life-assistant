@@ -31,7 +31,14 @@ final class SyncEngine {
     private let modelContext: ModelContext
     private let queue: SyncQueue
     private let networkMonitor: NetworkMonitor
-    private let sessionProvider: () -> String?
+    private let sessionProvider: () -> Session?
+
+    /// Кто мы для сервера. Токен без идентификатора бесполезен: колонка
+    /// владельца на сервере обязательная.
+    struct Session: Sendable {
+        let accessToken: String
+        let userID: UUID
+    }
 
     /// Ключ отметки последней синхронизации.
     private static let lastSyncKey = "sync.lastSyncedAt"
@@ -40,7 +47,7 @@ final class SyncEngine {
         modelContext: ModelContext,
         queue: SyncQueue,
         networkMonitor: NetworkMonitor,
-        sessionProvider: @escaping () -> String?
+        sessionProvider: @escaping () -> Session?
     ) {
         self.modelContext = modelContext
         self.queue = queue
@@ -79,10 +86,16 @@ final class SyncEngine {
 
         do {
             try await push()
-            try await pull()
+            let cursor = try await pull()
 
-            lastSyncedAt = .now
-            UserDefaults.standard.set(lastSyncedAt, forKey: Self.lastSyncKey)
+            // Отметка берётся из принятых данных. Раньше сюда писалось
+            // локальное «сейчас», которое сравнивалось с серверным
+            // временем: на телефоне с часами, ушедшими вперёд, чужие
+            // изменения этих минут не запрашивались уже никогда.
+            if let cursor {
+                lastSyncedAt = cursor
+                UserDefaults.standard.set(cursor, forKey: Self.lastSyncKey)
+            }
             pendingCount = queue.pendingCount
             state = .idle
 
@@ -106,6 +119,20 @@ final class SyncEngine {
         queue.enqueue(entityType, id: id, kind: .delete)
         pendingCount = queue.pendingCount
     }
+
+    /// Забывает всё, что связано с прошлой сессией.
+    ///
+    /// Вызывается при выходе из аккаунта: очередь отправки и курсор
+    /// принадлежат конкретному пользователю, и оставлять их следующему
+    /// значит отправить его записи в чужой аккаунт.
+    func forgetSession() {
+        queue.clear()
+        pendingCount = 0
+        lastSyncedAt = nil
+        UserDefaults.standard.removeObject(forKey: Self.lastSyncKey)
+        state = .idle
+        Log.data.notice("Состояние синхронизации сброшено")
+    }
 }
 
 // MARK: - Отправка
@@ -114,7 +141,10 @@ private extension SyncEngine {
 
     var client: SupabaseRESTClient? {
         guard let configuration = SupabaseConfiguration.current else { return nil }
-        return SupabaseRESTClient(configuration: configuration, accessToken: sessionProvider())
+        return SupabaseRESTClient(
+            configuration: configuration,
+            accessToken: sessionProvider()?.accessToken
+        )
     }
 
     /// Отправляет локальные изменения пачками по типам сущностей.
@@ -123,6 +153,9 @@ private extension SyncEngine {
     /// синхронизации после установки съест и трафик, и лимиты сервера.
     func push() async throws {
         guard let client else { throw SupabaseRESTClient.ClientError.notConfigured }
+        guard let userID = sessionProvider()?.userID else {
+            throw SupabaseRESTClient.ClientError.notConfigured
+        }
 
         let operations = queue.next(limit: 200)
         guard !operations.isEmpty else { return }
@@ -131,18 +164,34 @@ private extension SyncEngine {
 
         for (entityType, typeOperations) in grouped {
             let upserts = typeOperations.filter { $0.kind == .upsert }
-            guard !upserts.isEmpty else { continue }
+            let deletions = typeOperations.filter { $0.kind == .delete }
 
-            let ids = Set(upserts.map(\.entityID))
+            if !upserts.isEmpty {
+                let ids = Set(upserts.map(\.entityID))
+                do {
+                    try await pushEntities(of: entityType, ids: ids, using: client, userID: userID)
+                    upserts.forEach(queue.complete)
+                } catch {
+                    // Записи остаются в очереди и уедут при следующей попытке:
+                    // ошибка сети не должна терять данные.
+                    upserts.forEach(queue.fail)
+                    throw error
+                }
+            }
 
-            do {
-                try await pushEntities(of: entityType, ids: ids, using: client)
-                upserts.forEach(queue.complete)
-            } catch {
-                // Записи остаются в очереди и уедут при следующей попытке:
-                // ошибка сети не должна терять данные.
-                upserts.forEach(queue.fail)
-                throw error
+            // Удаления раньше молча отбрасывались: они не отправлялись,
+            // не завершались и не помечались неудачными, то есть висели
+            // в очереди вечно, а запись на сервере оставалась живой
+            // и возвращалась на второе устройство.
+            if !deletions.isEmpty {
+                let ids = Set(deletions.map(\.entityID))
+                do {
+                    try await client.markDeleted(ids: ids, in: entityType.tableName)
+                    deletions.forEach(queue.complete)
+                } catch {
+                    deletions.forEach(queue.fail)
+                    throw error
+                }
             }
         }
 
@@ -153,56 +202,57 @@ private extension SyncEngine {
     func pushEntities(
         of entityType: SyncEntityType,
         ids: Set<UUID>,
-        using client: SupabaseRESTClient
+        using client: SupabaseRESTClient,
+        userID: UUID
     ) async throws {
         switch entityType {
         case .capture:
             let items = try modelContext.fetch(
                 FetchDescriptor<CaptureItem>(predicate: #Predicate { ids.contains($0.id) })
             )
-            try await client.upsert(items.map(\.dto), into: entityType.tableName)
+            try await client.upsert(items.map { $0.dto(userID: userID) }, into: entityType.tableName)
             markSynced(items)
 
         case .note:
             let items = try modelContext.fetch(
                 FetchDescriptor<Note>(predicate: #Predicate { ids.contains($0.id) })
             )
-            try await client.upsert(items.map(\.dto), into: entityType.tableName)
+            try await client.upsert(items.map { $0.dto(userID: userID) }, into: entityType.tableName)
             items.forEach { $0.syncState = .synced }
 
         case .task:
             let items = try modelContext.fetch(
                 FetchDescriptor<TaskItem>(predicate: #Predicate { ids.contains($0.id) })
             )
-            try await client.upsert(items.map(\.dto), into: entityType.tableName)
+            try await client.upsert(items.map { $0.dto(userID: userID) }, into: entityType.tableName)
             items.forEach { $0.syncState = .synced }
 
         case .reminder:
             let items = try modelContext.fetch(
                 FetchDescriptor<Reminder>(predicate: #Predicate { ids.contains($0.id) })
             )
-            try await client.upsert(items.map(\.dto), into: entityType.tableName)
+            try await client.upsert(items.map { $0.dto(userID: userID) }, into: entityType.tableName)
             items.forEach { $0.syncState = .synced }
 
         case .expense:
             let items = try modelContext.fetch(
                 FetchDescriptor<Expense>(predicate: #Predicate { ids.contains($0.id) })
             )
-            try await client.upsert(items.map(\.dto), into: entityType.tableName)
+            try await client.upsert(items.map { $0.dto(userID: userID) }, into: entityType.tableName)
             items.forEach { $0.syncState = .synced }
 
         case .person:
             let items = try modelContext.fetch(
                 FetchDescriptor<Person>(predicate: #Predicate { ids.contains($0.id) })
             )
-            try await client.upsert(items.map(\.dto), into: entityType.tableName)
+            try await client.upsert(items.map { $0.dto(userID: userID) }, into: entityType.tableName)
             items.forEach { $0.syncState = .synced }
 
         case .project:
             let items = try modelContext.fetch(
                 FetchDescriptor<Project>(predicate: #Predicate { ids.contains($0.id) })
             )
-            try await client.upsert(items.map(\.dto), into: entityType.tableName)
+            try await client.upsert(items.map { $0.dto(userID: userID) }, into: entityType.tableName)
             items.forEach { $0.syncState = .synced }
         }
 
@@ -227,38 +277,92 @@ private extension SyncEngine {
     /// Порядок типов не случаен: люди и проекты идут первыми, затем захваты,
     /// и только потом производные сущности. Иначе заметка приедет раньше
     /// захвата, из которого сделана, и связь окажется пустой.
-    func pull() async throws {
+    /// - Returns: самая свежая отметка времени среди принятых записей.
+    ///   Курсор берётся из данных, а не с часов телефона: серверное время
+    ///   и локальное расходятся, и на сдвинутых часах окно чужих изменений
+    ///   терялось безвозвратно.
+    @discardableResult
+    func pull() async throws -> Date? {
         guard let client else { throw SupabaseRESTClient.ClientError.notConfigured }
 
         let since = lastSyncedAt
+        var cursor: Date?
 
-        let people: [PersonDTO] = try await client.fetchChanges(from: "people", since: since)
+        func advance(_ dates: [Date]) {
+            guard let newest = dates.max() else { return }
+            cursor = max(cursor ?? newest, newest)
+        }
+
+        let people: [PersonDTO] = try await fetchAll(from: "people", since: since, using: client)
         applyPeople(people)
+        advance(people.map(\.updatedAt))
 
-        let projects: [ProjectDTO] = try await client.fetchChanges(from: "projects", since: since)
+        let projects: [ProjectDTO] = try await fetchAll(from: "projects", since: since, using: client)
         applyProjects(projects)
+        advance(projects.map(\.updatedAt))
 
-        let captures: [CaptureDTO] = try await client.fetchChanges(from: "captures", since: since)
+        let captures: [CaptureDTO] = try await fetchAll(from: "captures", since: since, using: client)
         applyCaptures(captures)
+        advance(captures.map(\.updatedAt))
 
         // Указатель на захваты строится один раз за приём. Раньше он
         // собирался заново внутри каждой ветки, то есть пять раз подряд,
         // и каждый раз поднимал таблицу захватов целиком.
         let knownCaptures = captureIndex()
 
-        let notes: [NoteDTO] = try await client.fetchChanges(from: "notes", since: since)
+        let notes: [NoteDTO] = try await fetchAll(from: "notes", since: since, using: client)
         applyNotes(notes, captures: knownCaptures)
+        advance(notes.map(\.updatedAt))
 
-        let tasks: [TaskDTO] = try await client.fetchChanges(from: "tasks", since: since)
+        let tasks: [TaskDTO] = try await fetchAll(from: "tasks", since: since, using: client)
         applyTasks(tasks, captures: knownCaptures)
+        advance(tasks.map(\.updatedAt))
 
-        let reminders: [ReminderDTO] = try await client.fetchChanges(from: "reminders", since: since)
+        let reminders: [ReminderDTO] = try await fetchAll(from: "reminders", since: since, using: client)
         applyReminders(reminders, captures: knownCaptures)
+        advance(reminders.map(\.updatedAt))
 
-        let expenses: [ExpenseDTO] = try await client.fetchChanges(from: "expenses", since: since)
+        let expenses: [ExpenseDTO] = try await fetchAll(from: "expenses", since: since, using: client)
         applyExpenses(expenses, captures: knownCaptures)
+        advance(expenses.map(\.updatedAt))
 
         try modelContext.save()
+        return cursor
+    }
+
+    /// Забирает таблицу целиком, страницами.
+    ///
+    /// Клиент отдаёт не больше пятисот строк за запрос, а движок брал ровно
+    /// одну страницу и после этого двигал отметку времени вперёд. На новом
+    /// телефоне это означало, что из трёх тысяч записей приезжали первые
+    /// пятьсот, а остальные не приезжали никогда.
+    func fetchAll<Payload: SyncPayload>(
+        from table: String,
+        since: Date?,
+        using client: SupabaseRESTClient,
+        pageSize: Int = 500
+    ) async throws -> [Payload] {
+        var collected: [Payload] = []
+        var cursor = since
+
+        while true {
+            let page: [Payload] = try await client.fetchChanges(
+                from: table,
+                since: cursor,
+                limit: pageSize
+            )
+
+            collected += page
+            guard page.count == pageSize, let last = page.map(\.updatedAt).max() else { break }
+
+            // Следующая страница начинается с последней отметки времени.
+            // Если сервер отдал страницу с одинаковым временем во всех
+            // строках, сдвинуться некуда, и цикл прерывается.
+            guard last != cursor else { break }
+            cursor = last
+        }
+
+        return collected
     }
 
     /// Указатель на захват по идентификатору: производные сущности
@@ -287,8 +391,12 @@ private extension SyncEngine {
             if let local = existing[dto.id] {
                 if dto.deletedAt != nil {
                     modelContext.delete(local)
-                } else {
-                    local.apply(dto)
+                } else if !local.apply(dto) {
+                    // Серверная копия старше локальной и отброшена. Значит,
+                    // наша версия ещё не уехала: без этой строки расхождение
+                    // остаётся навсегда, потому что результат применения
+                    // раньше просто игнорировался.
+                    markChanged(.capture, id: local.id)
                 }
             } else if dto.deletedAt == nil {
                 modelContext.insert(CaptureItem.make(from: dto))
@@ -306,8 +414,12 @@ private extension SyncEngine {
             if let local = existing[dto.id] {
                 if dto.deletedAt != nil {
                     modelContext.delete(local)
-                } else {
-                    local.apply(dto)
+                } else if !local.apply(dto) {
+                    // Серверная копия старше локальной и отброшена. Значит,
+                    // наша версия ещё не уехала: без этой строки расхождение
+                    // остаётся навсегда, потому что результат применения
+                    // раньше просто игнорировался.
+                    markChanged(.note, id: local.id)
                 }
             } else if dto.deletedAt == nil {
                 let note = Note.make(from: dto)
@@ -327,8 +439,12 @@ private extension SyncEngine {
             if let local = existing[dto.id] {
                 if dto.deletedAt != nil {
                     modelContext.delete(local)
-                } else {
-                    local.apply(dto)
+                } else if !local.apply(dto) {
+                    // Серверная копия старше локальной и отброшена. Значит,
+                    // наша версия ещё не уехала: без этой строки расхождение
+                    // остаётся навсегда, потому что результат применения
+                    // раньше просто игнорировался.
+                    markChanged(.task, id: local.id)
                 }
             } else if dto.deletedAt == nil {
                 let task = TaskItem.make(from: dto)
@@ -348,8 +464,12 @@ private extension SyncEngine {
             if let local = existing[dto.id] {
                 if dto.deletedAt != nil {
                     modelContext.delete(local)
-                } else {
-                    local.apply(dto)
+                } else if !local.apply(dto) {
+                    // Серверная копия старше локальной и отброшена. Значит,
+                    // наша версия ещё не уехала: без этой строки расхождение
+                    // остаётся навсегда, потому что результат применения
+                    // раньше просто игнорировался.
+                    markChanged(.reminder, id: local.id)
                 }
             } else if dto.deletedAt == nil {
                 let reminder = Reminder.make(from: dto)
@@ -369,8 +489,12 @@ private extension SyncEngine {
             if let local = existing[dto.id] {
                 if dto.deletedAt != nil {
                     modelContext.delete(local)
-                } else {
-                    local.apply(dto)
+                } else if !local.apply(dto) {
+                    // Серверная копия старше локальной и отброшена. Значит,
+                    // наша версия ещё не уехала: без этой строки расхождение
+                    // остаётся навсегда, потому что результат применения
+                    // раньше просто игнорировался.
+                    markChanged(.expense, id: local.id)
                 }
             } else if dto.deletedAt == nil {
                 let expense = Expense.make(from: dto)
@@ -391,8 +515,12 @@ private extension SyncEngine {
             if let local = existing[dto.id] {
                 if dto.deletedAt != nil {
                     modelContext.delete(local)
-                } else {
-                    local.apply(dto)
+                } else if !local.apply(dto) {
+                    // Серверная копия старше локальной и отброшена. Значит,
+                    // наша версия ещё не уехала: без этой строки расхождение
+                    // остаётся навсегда, потому что результат применения
+                    // раньше просто игнорировался.
+                    markChanged(.person, id: local.id)
                 }
             } else if dto.deletedAt == nil {
                 modelContext.insert(Person.make(from: dto))
@@ -411,8 +539,12 @@ private extension SyncEngine {
             if let local = existing[dto.id] {
                 if dto.deletedAt != nil {
                     modelContext.delete(local)
-                } else {
-                    local.apply(dto)
+                } else if !local.apply(dto) {
+                    // Серверная копия старше локальной и отброшена. Значит,
+                    // наша версия ещё не уехала: без этой строки расхождение
+                    // остаётся навсегда, потому что результат применения
+                    // раньше просто игнорировался.
+                    markChanged(.project, id: local.id)
                 }
             } else if dto.deletedAt == nil {
                 modelContext.insert(Project.make(from: dto))

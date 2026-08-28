@@ -39,6 +39,7 @@ struct AILifeAssistantApp: App {
                     .environment(environment.notifications)
                     .environment(environment.notificationRouter)
                     .environment(environment.appLock)
+                    .environment(environment.deletionService)
                     .environment(\.capabilities, environment.capabilities)
                     .modelContainer(environment.container)
             }
@@ -62,6 +63,11 @@ struct AILifeAssistantApp: App {
                 if environment.coordinator.phase.isActive {
                     Task { await environment.coordinator.stop(reason: .interrupted) }
                 }
+
+                // Уход в фон это лучший момент отправить накопленное:
+                // раньше синхронизация запускалась только при старте
+                // приложения и при появлении сети.
+                Task { await environment.syncEngine.sync() }
             default:
                 break
             }
