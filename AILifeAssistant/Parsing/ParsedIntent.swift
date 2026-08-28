@@ -28,6 +28,12 @@ struct ParsedItem: Codable, Sendable, Equatable, Identifiable {
     var dueDate: Date?
     var priority: Priority
 
+    /// Правило повтора: "daily", "weekly:mon", "monthly".
+    ///
+    /// Раньше оно оставалось только текстом в описании, и «каждый день
+    /// в полдевятого» приходило ровно один раз.
+    var recurrenceRule: String?
+
     // MARK: Деньги
 
     var amount: Decimal?
@@ -55,6 +61,7 @@ struct ParsedItem: Codable, Sendable, Equatable, Identifiable {
         details: String = "",
         dueDate: Date? = nil,
         priority: Priority = .none,
+        recurrenceRule: String? = nil,
         amount: Decimal? = nil,
         currencyCode: String? = nil,
         category: ExpenseCategory? = nil,
@@ -71,6 +78,7 @@ struct ParsedItem: Codable, Sendable, Equatable, Identifiable {
         self.details = details
         self.dueDate = dueDate
         self.priority = priority
+        self.recurrenceRule = recurrenceRule
         self.amount = amount
         self.currencyCode = currencyCode
         self.category = category

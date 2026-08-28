@@ -244,7 +244,10 @@ enum DateExtractor {
         if let half = extractHalfHour(from: text) { return half }
 
         // Числовое время с необязательными минутами и суффиксом am/pm.
-        let numericPattern = #"(?:в|at|к)\s*(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|утра|дня|вечера|ночи)?"#
+        // Предлог обязан начинать слово, а за временем не должно идти цифр.
+        // Без первого условия «оплатить чек 1500» цеплялось за «к» в конце
+        // слова «чек» и назначало встречу на 15:00.
+        let numericPattern = #"(?<![\p{L}])(?:в|во|at|к)\s*(\d{1,2})(?:[:.](\d{2}))?(?!\d)\s*(am|pm|утра|дня|вечера|ночи)?"#
         if let regex = try? NSRegularExpression(pattern: numericPattern) {
             let nsText = text as NSString
             if let match = regex.firstMatch(
@@ -453,11 +456,29 @@ enum DateExtractor {
         context: ParsingContext
     ) -> Date {
         guard let time else { return date }
-        return context.calendar.date(
+
+        // В ночь перехода на летнее время названного часа может не
+        // существовать. bySettingHour тогда возвращает nil, и напоминание
+        // откатывалось на момент захвата, то есть срабатывало сразу.
+        // nextDate со стратегией .nextTime сдвигает его на ближайший
+        // существующий момент.
+        if let exact = context.calendar.date(
             bySettingHour: time.hour,
             minute: time.minute,
             second: 0,
             of: date
+        ) {
+            return exact
+        }
+
+        var components = DateComponents()
+        components.hour = time.hour
+        components.minute = time.minute
+
+        return context.calendar.nextDate(
+            after: context.calendar.startOfDay(for: date),
+            matching: components,
+            matchingPolicy: .nextTime
         ) ?? date
     }
 

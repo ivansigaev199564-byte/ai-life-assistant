@@ -143,6 +143,7 @@ struct EntityMaterializer {
                 existing.title = item.title
                 existing.details = item.details
                 existing.fireDate = fireDate
+                existing.recurrenceRule = item.recurrenceRule
                 existing.priority = item.priority
                 existing.confidence = item.confidence
                 existing.updatedAt = .now
@@ -153,6 +154,9 @@ struct EntityMaterializer {
                 title: item.title,
                 details: item.details,
                 fireDate: fireDate,
+                // Без этого поля «каждый день в полдевятого» приходило
+                // ровно один раз: правило оставалось строкой в описании.
+                recurrenceRule: item.recurrenceRule,
                 priority: item.priority,
                 confidence: item.confidence,
                 source: capture

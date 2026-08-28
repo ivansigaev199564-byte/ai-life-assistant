@@ -243,9 +243,9 @@ struct FastPathParser: IntentParsing {
         if date != nil { confidence += 0.15 }
         if date?.hasExplicitTime == true { confidence += 0.1 }
 
-        // Правило повторения сохраняется в заметке к напоминанию:
-        // само повторение приложение пока не планирует, но терять
-        // сказанное нельзя.
+        // Правило повторения едет отдельным полем и доходит до системного
+        // уведомления. В описании оно тоже остаётся: человек должен видеть
+        // на экране, что напоминание повторяется.
         let recurrence = DateExtractor.recurrenceRule(in: text)
         let details = recurrence.map { "Повторение: " + $0 } ?? ""
 
@@ -255,6 +255,7 @@ struct FastPathParser: IntentParsing {
             details: details,
             dueDate: fireDate,
             priority: priority,
+            recurrenceRule: recurrence,
             people: people,
             confidence: min(1, confidence),
             sourceText: text
@@ -276,7 +277,9 @@ struct FastPathParser: IntentParsing {
 
         return ParsedItem(
             kind: .task,
-            title: cleanTitle(text, removing: IntentKeywords.task),
+            // Убираем только служебные слова: глагол действия это и есть
+            // задача, без него в списке дел остаётся «Посылку» и «Ване».
+            title: cleanTitle(text, removing: IntentKeywords.taskFillers),
             dueDate: date?.date,
             priority: priority,
             people: people,
@@ -306,23 +309,34 @@ struct FastPathParser: IntentParsing {
         var result = text
 
         for marker in markers where marker.count >= 3 {
-            // Только регистронезависимый поиск, без снятия диакритики.
-            // С .diacriticInsensitive поиск на строках с «ё» возвращает
-            // диапазон, границы которого не совпадают с символами строки,
-            // и удаление по нему роняет приложение.
-            var iterations = 0
-            while iterations < 10, let range = result.range(of: marker, options: [.caseInsensitive]) {
-                result.removeSubrange(range)
-                iterations += 1
-            }
+            // Маркеры это корни: «напомн» стоит в тексте как «напомни»,
+            // «пятниц» как «пятницу». Удалять надо слово целиком и только
+            // с начала слова. Раньше вырезалась ровно подстрока, и в
+            // заголовке оставался огрызок: «напомни позвонить маме»
+            // превращалось в «И позвонить маме», а «нужно позвонить Ване»
+            // в «Ить Ване».
+            //
+            // Регистронезависимо, но без снятия диакритики: с ней поиск
+            // на строках с «ё» возвращает диапазон, границы которого
+            // не совпадают с символами строки.
+            let pattern = #"(?<![\p{L}])"#
+                + NSRegularExpression.escapedPattern(for: marker)
+                + #"\p{L}*"#
+
+            result = result.replacingOccurrences(
+                of: pattern,
+                with: " ",
+                options: [.regularExpression, .caseInsensitive]
+            )
         }
 
         result = result
             .replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:-—"))
 
-        // Первая буква заглавная: так заголовок читается как заголовок.
-        guard let first = result.first else { return text }
+        // От заголовка ничего осмысленного не осталось: исходная фраза
+        // лучше огрызка вроде «И» или пустой строки.
+        guard result.count >= 3, let first = result.first else { return text }
         return first.uppercased() + result.dropFirst()
     }
 

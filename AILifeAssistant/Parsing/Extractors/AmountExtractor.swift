@@ -65,7 +65,9 @@ enum AmountExtractor {
     private static let multipliers: [String: Decimal] = [
         "тысяч": 1_000, "тыщ": 1_000, "тыс": 1_000,
         "миллион": 1_000_000, "млн": 1_000_000, "лям": 1_000_000,
-        "hundred": 100, "thousand": 1_000, "million": 1_000_000, "k": 1_000
+        // Кириллическая «к» рядом с латинской: распознавание речи пишет
+        // «20к» русской буквой, и без неё сумма оставалась двадцаткой.
+        "hundred": 100, "thousand": 1_000, "million": 1_000_000, "k": 1_000, "к": 1_000
     ]
 
     /// Разговорные названия сумм.
@@ -102,6 +104,11 @@ enum AmountExtractor {
     // MARK: Цифры
 
     /// Разбирает «300», «1 500,50», «$46», «46 USD», «2к».
+    ///
+    /// Из нескольких чисел выбирается то, которое похоже на цену, а не
+    /// то, которое стоит левее. «Купил 2 кофе за 300 рублей» раньше давало
+    /// расход на 2 рубля, и месячная статистика врала в меньшую сторону,
+    /// причём незаметно.
     private static func extractNumeric(from text: String, defaultCurrency: String?) -> Result? {
         // Отрицательный просмотр назад отсекает числа внутри слов и дат.
         // Raw-строка: в регексе много обратных слэшей, и экранировать
@@ -112,9 +119,22 @@ enum AmountExtractor {
         let nsText = text as NSString
         let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
 
+        struct Candidate {
+            let value: Decimal
+            let currencyCode: String?
+            let hasPriceMarker: Bool
+            let matchedText: String
+        }
+
+        var candidates: [Candidate] = []
+
         for match in matches {
             let numberRange = match.range(at: 1)
             guard numberRange.location != NSNotFound else { continue }
+
+            // Время и дата это не деньги: «встреча в 15:30, оплатить счёт
+            // 2000 рублей» не должно превращаться в расход на 15 рублей.
+            guard !looksLikeClockOrDate(match.range, in: nsText) else { continue }
 
             let digits = nsText.substring(with: numberRange)
                 .replacingOccurrences(of: " ", with: "")
@@ -133,16 +153,83 @@ enum AmountExtractor {
             }
 
             let context = surroundingContext(of: match.range, in: nsText)
-            let explicitCurrency = currencyCode(in: context)
 
-            return Result(
-                amount: value,
-                currencyCode: explicitCurrency ?? defaultCurrency,
-                hasExplicitCurrency: explicitCurrency != nil,
-                matchedText: nsText.substring(with: match.range)
+            candidates.append(
+                Candidate(
+                    value: value,
+                    currencyCode: currencyCode(in: context),
+                    hasPriceMarker: hasPriceMarker(before: match.range, in: nsText),
+                    matchedText: nsText.substring(with: match.range)
+                )
             )
         }
-        return nil
+
+        // Сначала число с названной валютой, затем стоящее после «за»
+        // или «по», и только потом последнее: цена в живой речи почти
+        // всегда правее количества.
+        let best = candidates.first { $0.currencyCode != nil }
+            ?? candidates.first { $0.hasPriceMarker }
+            ?? candidates.last
+
+        guard let best else { return nil }
+
+        return Result(
+            amount: best.value,
+            currencyCode: best.currencyCode ?? defaultCurrency,
+            hasExplicitCurrency: best.currencyCode != nil,
+            matchedText: best.matchedText
+        )
+    }
+
+    /// Слова, после которых идёт именно цена.
+    private static let priceMarkers = ["за ", "по ", "ценой ", "стоимостью ", "for ", "at "]
+
+    private static func hasPriceMarker(before range: NSRange, in text: NSString) -> Bool {
+        let start = max(0, range.location - 12)
+        guard range.location > start else { return false }
+
+        let prefix = IntentKeywords.normalize(
+            text.substring(with: NSRange(location: start, length: range.location - start))
+        )
+        return priceMarkers.contains { prefix.hasSuffix($0) }
+    }
+
+    /// Корни названий месяцев: число перед ними это дата, а не сумма.
+    private static let monthRoots = [
+        "январ", "феврал", "март", "апрел", "мая", "мае", "май", "июн", "июл",
+        "август", "сентябр", "октябр", "ноябр", "декабр",
+        "january", "february", "march", "april", "may", "june", "july",
+        "august", "september", "october", "november", "december"
+    ]
+
+    /// Похоже ли число на время или дату.
+    private static func looksLikeClockOrDate(_ range: NSRange, in text: NSString) -> Bool {
+        let after = range.location + range.length
+
+        // «15:30» и «15.30»: разделитель с двумя цифрами вплотную.
+        if after < text.length {
+            let tailLength = min(3, text.length - after)
+            let tail = text.substring(with: NSRange(location: after, length: tailLength))
+            if tail.range(of: #"^[:.]\d{2}"#, options: .regularExpression) != nil { return true }
+        }
+
+        // Вторая половина времени: «30» в «15:30».
+        if range.location > 0 {
+            let previous = text.substring(with: NSRange(location: range.location - 1, length: 1))
+            if previous == ":" { return true }
+        }
+
+        // «25 августа».
+        if after < text.length {
+            let tailLength = min(14, text.length - after)
+            let tail = IntentKeywords
+                .normalize(text.substring(with: NSRange(location: after, length: tailLength)))
+                .trimmingCharacters(in: .whitespaces)
+
+            if monthRoots.contains(where: { tail.hasPrefix($0) }) { return true }
+        }
+
+        return false
     }
 
     /// Множитель сразу после числа: «2к», «5 тысяч», «3 млн».
@@ -156,9 +243,24 @@ enum AmountExtractor {
             .trimmingCharacters(in: .whitespaces)
 
         for (marker, value) in multipliers where tail.hasPrefix(marker) {
+            // После однобуквенного множителя не должно идти букв, иначе
+            // «300 кофе» превращается в триста тысяч, а «5 km» в пять тысяч.
+            let rest = tail.dropFirst(marker.count)
+            if marker.count <= 2, let next = rest.first, next.isLetter { continue }
             return value
         }
         return nil
+    }
+
+    /// Слово совпадает с корнем с точностью до падежного окончания.
+    ///
+    /// Проверка на голый префикс считала «штукатурку» тысячей рублей.
+    private static func matchesRoot(_ word: String, root: String, maxSuffix: Int) -> Bool {
+        guard word.hasPrefix(root) else { return false }
+        // Совсем короткий корень обязан совпасть целиком: иначе «к»
+        // находится в «кофе», а «тыс» это уже надёжный корень.
+        if root.count <= 2 { return word.count == root.count }
+        return word.count - root.count <= maxSuffix
     }
 
     // MARK: Числительные словами
@@ -185,7 +287,8 @@ enum AmountExtractor {
 
             // «Косарь», «полтинник», «пятихатка»: разговорная сумма сама
             // по себе завершённая, множитель к ней не применяется.
-            if let colloquial = colloquialAmounts.first(where: { word.hasPrefix($0.key) })?.value {
+            if let colloquial = colloquialAmounts
+                .first(where: { matchesRoot(word, root: $0.key, maxSuffix: 2) })?.value {
                 current = current == 0 ? colloquial : current * colloquial
                 total += current
                 current = 0
@@ -202,7 +305,8 @@ enum AmountExtractor {
                 continue
             }
 
-            if let multiplier = multipliers.first(where: { word.hasPrefix($0.key) })?.value {
+            if let multiplier = multipliers
+                .first(where: { matchesRoot(word, root: $0.key, maxSuffix: 3) })?.value {
                 // «тысяча» без числа перед ней означает одну тысячу.
                 current = current == 0 ? multiplier : current * multiplier
                 total += current

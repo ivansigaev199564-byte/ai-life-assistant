@@ -27,11 +27,27 @@ enum IntentKeywords {
     ]
 
     /// Маркеры задачи.
+    ///
+    /// Инфинитивы здесь так же важны, как служебные слова: люди диктуют
+    /// дела именно ими. «Купить хлеб» без «купить» в списке проваливалось
+    /// в заметку и до списка дел не доходило.
     static let task: [String] = [
         "нужно", "надо", "надобно", "сделать", "задач", "запланир",
         "позвон", "написа", "отправ", "заказ", "забрать", "встрет",
+        "купить", "купл", "сходить", "съездить", "заехать", "оплатить",
+        "продлить", "записаться", "забронировать", "починить", "постирать",
+        "убрать", "приготовить", "получить", "вернуть", "сдать", "проверить",
         "need to", "have to", "must", "todo", "to do", "task", "call ",
-        "write ", "send ", "order ", "pick up", "meet "
+        "write ", "send ", "order ", "pick up", "meet ", "buy "
+    ]
+
+    /// Служебные слова задачи: только они убираются из заголовка.
+    ///
+    /// Глагол действия остаётся: «позвонить Ване» это и есть суть дела,
+    /// и раньше очистка заголовка съедала именно его, оставляя «Ване».
+    static let taskFillers: [String] = [
+        "нужно", "надо", "надобно", "задач", "запланир",
+        "need to", "have to", "must", "todo", "to do", "task"
     ]
 
     /// Маркеры заметки или идеи.
@@ -47,7 +63,9 @@ enum IntentKeywords {
     ]
 
     static let lowPriority: [String] = [
-        "когда-нибудь", "не срочно", "потом", "someday", "later", "low priority"
+        "когда-нибудь", "не срочно", "несрочно", "не важно", "неважно",
+        "не критично", "не горит", "потом",
+        "someday", "later", "low priority", "not urgent"
     ]
 
     // MARK: Категории расходов
@@ -110,10 +128,35 @@ enum IntentKeywords {
             .replacingOccurrences(of: "ё", with: "е")
     }
 
+    /// Маркеры, которые являются законченными словами, а не корнями.
+    ///
+    /// Для них проверяются границы слова с обеих сторон. Без этого «надо»
+    /// находилось внутри «надоело», «потом» внутри «потому», а «срочно»
+    /// внутри «не срочно», и фраза получала смысл, обратный сказанному.
+    private static let wholeWordMarkers: Set<String> = [
+        "надо", "нужно", "надобно", "потом", "срочно", "важно", "критично",
+        "сделать", "купить", "убрать", "вернуть", "сдать", "проверить",
+        "must", "task", "later", "urgent", "important"
+    ]
+
+    /// Есть ли маркер в уже нормализованном тексте.
+    static func matches(_ normalized: String, marker: String) -> Bool {
+        guard wholeWordMarkers.contains(marker) else {
+            // Корень слова: продолжение обязано быть, границу справа
+            // требовать нельзя.
+            return normalized.contains(marker)
+        }
+
+        let pattern = #"(?<![\p{L}])"#
+            + NSRegularExpression.escapedPattern(for: marker)
+            + #"(?![\p{L}])"#
+        return normalized.range(of: pattern, options: .regularExpression) != nil
+    }
+
     /// Содержит ли текст хотя бы один маркер из набора.
     static func contains(_ text: String, any markers: [String]) -> Bool {
         let normalized = normalize(text)
-        return markers.contains { normalized.contains(normalize($0)) }
+        return markers.contains { matches(normalized, marker: normalize($0)) }
     }
 
     /// Сколько маркеров набора встретилось: используется как грубая мера
@@ -121,7 +164,7 @@ enum IntentKeywords {
     static func matchCount(_ text: String, markers: [String]) -> Int {
         let normalized = normalize(text)
         return markers.reduce(into: 0) { count, marker in
-            if normalized.contains(normalize(marker)) { count += 1 }
+            if matches(normalized, marker: normalize(marker)) { count += 1 }
         }
     }
 
@@ -143,9 +186,13 @@ enum IntentKeywords {
     }
 
     /// Приоритет по словам фразы.
+    ///
+    /// Низкий проверяется первым: «срочно» это часть «не срочно», и при
+    /// обратном порядке фраза «это не срочно» получала высокий приоритет,
+    /// то есть ровно противоположный сказанному.
     static func priority(in text: String) -> Priority {
-        if contains(text, any: highPriority) { return .high }
         if contains(text, any: lowPriority) { return .low }
+        if contains(text, any: highPriority) { return .high }
         return .none
     }
 }
