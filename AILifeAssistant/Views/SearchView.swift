@@ -12,7 +12,13 @@ struct SearchView: View {
     @Environment(SearchService.self) private var search
     @Environment(ProcessingQueue.self) private var processingQueue
 
-    @Query private var captures: [CaptureItem]
+    @Environment(\.modelContext) private var modelContext
+
+    /// Запись, открытая из выдачи.
+    ///
+    /// Раньше экран держал второй полный запрос по всем захватам и искал
+    /// в нём линейным проходом на каждую отрисованную строку результата.
+    @State private var openedCapture: CaptureItem?
 
     @State private var query = ""
     @FocusState private var isFieldFocused: Bool
@@ -43,6 +49,9 @@ struct SearchView: View {
                     Button("Готово") { dismiss() }
                         .fontWeight(.semibold)
                 }
+            }
+            .navigationDestination(item: $openedCapture) { capture in
+                CaptureDetailView(capture: capture, processingQueue: processingQueue)
             }
             .onAppear { isFieldFocused = true }
             .onDisappear { search.clear() }
@@ -149,9 +158,11 @@ struct SearchView: View {
     /// типы показываются карточкой без перехода, отдельных экранов у них нет.
     @ViewBuilder
     private func resultRow(_ result: SearchResult) -> some View {
-        if result.kind == .capture, let capture = captures.first(where: { $0.id == result.id }) {
-            NavigationLink {
-                CaptureDetailView(capture: capture, processingQueue: processingQueue)
+        if result.kind == .capture {
+            Button {
+                // Запись достаётся по идентификатору в момент нажатия,
+                // а не ищется в поднятой в память таблице при отрисовке.
+                openedCapture = capture(with: result.id)
             } label: {
                 resultCard(result)
             }
@@ -159,6 +170,12 @@ struct SearchView: View {
         } else {
             resultCard(result)
         }
+    }
+
+    private func capture(with id: UUID) -> CaptureItem? {
+        var descriptor = FetchDescriptor<CaptureItem>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return try? modelContext.fetch(descriptor).first
     }
 
     private func resultCard(_ result: SearchResult) -> some View {

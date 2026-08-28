@@ -23,6 +23,14 @@ final class AudioEngineRecorder: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private let lock = NSLock()
 
+    /// Очередь записи на диск.
+    ///
+    /// Колбэк tap приходит из потока реального времени: любая блокировка
+    /// в нём это риск подрезанного звука. Файловая запись под замком там
+    /// была прямым нарушением этого правила, поэтому буфер копируется
+    /// и уезжает сюда.
+    private let writeQueue = DispatchQueue(label: "com.ivans.ailifeassistant.recorder.write", qos: .utility)
+
     private var audioFile: AVAudioFile?
     private var fileURL: URL?
     private var startedAt: TimeInterval?
@@ -108,8 +116,9 @@ final class AudioEngineRecorder: @unchecked Sendable {
         let duration = startedAt.map { ProcessInfo.processInfo.systemUptime - $0 } ?? 0
         let result = Result(fileURL: fileURL, duration: duration, peakLevel: peak)
 
-        // Закрываем файл: AVAudioFile дописывает заголовок в deinit.
-        audioFile = nil
+        // Ждём, пока очередь допишет накопленное, и закрываем файл:
+        // AVAudioFile дописывает заголовок в deinit.
+        writeQueue.sync { audioFile = nil }
         startedAt = nil
 
         Log.voice.debug("Аудиодвижок остановлен, длительность \(duration, format: .fixed(precision: 2)) с")
@@ -130,11 +139,16 @@ final class AudioEngineRecorder: @unchecked Sendable {
     private func handle(buffer: AVAudioPCMBuffer, time: AVAudioTime) {
         onBuffer?(buffer, time)
 
-        if let audioFile {
-            do {
-                try audioFile.write(from: buffer)
-            } catch {
-                Log.voice.error("Ошибка записи в файл: \(error.localizedDescription)")
+        // Буфер tap живёт только внутри колбэка, поэтому на очередь уходит
+        // копия, а не он сам.
+        if audioFile != nil, let copy = Self.copy(of: buffer) {
+            writeQueue.async { [weak self] in
+                guard let self, let file = self.audioFile else { return }
+                do {
+                    try file.write(from: copy)
+                } catch {
+                    Log.voice.error("Ошибка записи в файл: \(error.localizedDescription)")
+                }
             }
         }
 
@@ -144,6 +158,35 @@ final class AudioEngineRecorder: @unchecked Sendable {
         lock.unlock()
 
         onLevel?(level, ProcessInfo.processInfo.systemUptime)
+    }
+
+    /// Копия буфера: содержимое tap-буфера переиспользуется системой сразу
+    /// после возврата из колбэка.
+    private static func copy(of buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let copy = AVAudioPCMBuffer(
+            pcmFormat: buffer.format,
+            frameCapacity: buffer.frameLength
+        ) else { return nil }
+
+        copy.frameLength = buffer.frameLength
+
+        guard let source = buffer.floatChannelData, let destination = copy.floatChannelData else {
+            return nil
+        }
+
+        let bytes = Int(buffer.frameLength) * MemoryLayout<Float>.size
+        for channel in 0..<Int(buffer.format.channelCount) {
+            memcpy(destination[channel], source[channel], bytes)
+        }
+        return copy
+    }
+
+    deinit {
+        // Владелец мог исчезнуть, не остановив запись. Без снятия tap
+        // микрофон остаётся открытым, и телефон продолжает показывать,
+        // что приложение слушает.
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
     }
 
     /// Среднеквадратичный уровень первого канала, приведённый к 0...1.

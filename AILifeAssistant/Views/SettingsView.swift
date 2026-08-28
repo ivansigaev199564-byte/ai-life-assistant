@@ -77,11 +77,13 @@ struct SettingsView: View {
     private func export(_ format: ExportService.Format) {
         exportError = nil
 
-        do {
-            exportedFile = try ExportService(modelContext: modelContext).export(format)
-        } catch {
-            exportError = "Не удалось подготовить файл: " + error.localizedDescription
-            Log.data.error("Выгрузка не удалась: \(error.localizedDescription)")
+        Task {
+            do {
+                exportedFile = try await ExportService(modelContext: modelContext).export(format)
+            } catch {
+                exportError = "Не удалось подготовить файл: " + error.localizedDescription
+                Log.data.error("Выгрузка не удалась: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -476,8 +478,14 @@ struct SettingsView: View {
         }
     }
 
+    /// Размер каталога записей считается обходом файлов, а это заметная
+    /// работа на диске: главный поток она держать не должна.
     private func refreshSize() {
-        recordingsSize = RecordingStore().totalSize()
+        Task {
+            recordingsSize = await Task.detached(priority: .utility) {
+                RecordingStore().totalSize()
+            }.value
+        }
     }
 
     private func downloadWhisperModel() {

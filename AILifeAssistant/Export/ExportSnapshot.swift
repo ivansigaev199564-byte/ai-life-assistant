@@ -4,9 +4,9 @@ import Foundation
 ///
 /// Отдельные типы, а не модели SwiftData: файл переживёт и приложение,
 /// и схему базы, поэтому обязан читаться без них.
-struct ExportSnapshot: Encodable {
+struct ExportSnapshot: Encodable, Sendable {
 
-    struct Capture: Encodable {
+    struct Capture: Encodable, Sendable {
         let id: UUID
         let text: String
         let source: String
@@ -17,7 +17,7 @@ struct ExportSnapshot: Encodable {
         let parseConfidence: Double
     }
 
-    struct Note: Encodable {
+    struct Note: Encodable, Sendable {
         let id: UUID
         let captureId: UUID?
         let title: String
@@ -26,7 +26,7 @@ struct ExportSnapshot: Encodable {
         let createdAt: Date
     }
 
-    struct Task: Encodable {
+    struct Task: Encodable, Sendable {
         let id: UUID
         let captureId: UUID?
         let title: String
@@ -37,7 +37,7 @@ struct ExportSnapshot: Encodable {
         let createdAt: Date
     }
 
-    struct Reminder: Encodable {
+    struct Reminder: Encodable, Sendable {
         let id: UUID
         let captureId: UUID?
         let title: String
@@ -48,7 +48,7 @@ struct ExportSnapshot: Encodable {
         let createdAt: Date
     }
 
-    struct Expense: Encodable {
+    struct Expense: Encodable, Sendable {
         let id: UUID
         let captureId: UUID?
         /// Сумма строкой: числа с плавающей точкой в JSON округляются,
@@ -61,14 +61,14 @@ struct ExportSnapshot: Encodable {
         let spentAt: Date
     }
 
-    struct Person: Encodable {
+    struct Person: Encodable, Sendable {
         let id: UUID
         let name: String
         let aliases: [String]
         let mentions: Int
     }
 
-    struct Project: Encodable {
+    struct Project: Encodable, Sendable {
         let id: UUID
         let name: String
         let aliases: [String]

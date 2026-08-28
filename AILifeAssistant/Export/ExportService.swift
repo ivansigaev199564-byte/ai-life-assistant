@@ -35,13 +35,45 @@ struct ExportService {
         self.modelContext = modelContext
     }
 
-    /// Готовит файл выгрузки и возвращает путь к нему.
-    func export(_ format: Format) throws -> URL {
-        let data: Data
+    /// Что уходит в файл. Снимок отделён от кодирования, чтобы кодировать
+    /// можно было вне главного актора.
+    enum Payload: Sendable {
+        case json(ExportSnapshot)
+        case csv(rows: [[String]], header: String)
 
-        switch format {
-        case .json: data = try makeJSON()
-        case .csv: data = try makeCSV()
+        func encoded() throws -> Data {
+            switch self {
+            case .json(let snapshot):
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+                encoder.dateEncodingStrategy = .iso8601
+                return try encoder.encode(snapshot)
+
+            case .csv(let rows, let header):
+                var lines = [header]
+                lines += rows.map { $0.map(ExportService.escape).joined(separator: ",") }
+
+                // Метка кодировки в начале файла: без неё Excel открывает
+                // кириллицу кракозябрами, и выгрузка выглядит испорченной,
+                // хотя данные целы.
+                var data = Data([0xEF, 0xBB, 0xBF])
+                data.append(lines.joined(separator: "
+").data(using: .utf8) ?? Data())
+                return data
+            }
+        }
+    }
+
+    /// Готовит файл выгрузки и возвращает путь к нему.
+    ///
+    /// Модели SwiftData живут на главном акторе, поэтому снимок собирается
+    /// здесь. Кодирование и запись уходят с главного потока: на тысячах
+    /// записей они держали интерфейс несколько секунд прямо в обработчике
+    /// нажатия кнопки.
+    func export(_ format: Format) async throws -> URL {
+        let payload: Payload = switch format {
+        case .json: .json(makeSnapshot())
+        case .csv: .csv(rows: makeCSVRows(), header: String(localized: "export.csv.header"))
         }
 
         let formatter = DateFormatter()
@@ -51,7 +83,10 @@ struct ExportService {
         let name = "ai-assistant-" + formatter.string(from: .now) + "." + format.fileExtension
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
 
-        try data.write(to: url, options: .atomic)
+        try await Task.detached(priority: .userInitiated) {
+            try payload.encoded().write(to: url, options: .atomic)
+        }.value
+
         return url
     }
 
@@ -64,8 +99,8 @@ struct ExportService {
 
 private extension ExportService {
 
-    func makeJSON() throws -> Data {
-        let snapshot = ExportSnapshot(
+    func makeSnapshot() -> ExportSnapshot {
+        ExportSnapshot(
             exportedAt: .now,
             appVersion: Bundle.main
                 .object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0",
@@ -144,37 +179,27 @@ private extension ExportService {
                 )
             }
         )
-
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        encoder.dateEncodingStrategy = .iso8601
-        return try encoder.encode(snapshot)
     }
 
-    func makeCSV() throws -> Data {
-        var rows = [String(localized: "export.csv.header")]
-
+    /// Строки CSV собираются на главном акторе: локализованное название
+    /// категории берётся из модели, а склейка уходит на фон.
+    func makeCSVRows() -> [[String]] {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
 
-        for expense in fetch(Expense.self).sorted(by: { $0.spentAt > $1.spentAt }) {
-            let fields = [
-                formatter.string(from: expense.spentAt),
-                NSDecimalNumber(decimal: expense.amount).stringValue,
-                expense.currencyCode,
-                expense.category.displayName,
-                expense.details,
-                expense.merchant ?? ""
-            ]
-            rows.append(fields.map(Self.escape).joined(separator: ","))
-        }
-
-        // Метка кодировки в начале файла: без неё Excel открывает кириллицу
-        // кракозябрами, и выгрузка выглядит испорченной, хотя данные целы.
-        var data = Data([0xEF, 0xBB, 0xBF])
-        data.append(rows.joined(separator: "\n").data(using: .utf8) ?? Data())
-        return data
+        return fetch(Expense.self)
+            .sorted { $0.spentAt > $1.spentAt }
+            .map { expense in
+                [
+                    formatter.string(from: expense.spentAt),
+                    NSDecimalNumber(decimal: expense.amount).stringValue,
+                    expense.currencyCode,
+                    expense.category.displayName,
+                    expense.details,
+                    expense.merchant ?? ""
+                ]
+            }
     }
 
     /// Экранирование поля: описание траты вполне может содержать запятую.
