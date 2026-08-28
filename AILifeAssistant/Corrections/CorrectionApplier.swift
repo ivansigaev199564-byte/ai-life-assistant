@@ -133,13 +133,12 @@ struct CorrectionApplier {
         // Исправление рукой человека надёжнее любого разбора.
         expense.confidence = 1
         expense.needsReview = false
+        // Пометка вместо правки текста. Раньше сумма подменялась прямо
+        // в сказанном, подстрокой: во фразе «взял 2 по 46» замена сорока
+        // шести задевала и соседнее число, а сама запись начинала врать
+        // о том, что человек произнёс.
+        expense.isUserEdited = true
 
-        // Текст захвата тоже правим: иначе повторный разбор вернёт
-        // старую сумму и перезатрёт исправление.
-        capture.text = capture.text.replacingOccurrences(
-            of: NSDecimalNumber(decimal: oldAmount).stringValue,
-            with: NSDecimalNumber(decimal: newAmount).stringValue
-        )
         capture.updatedAt = .now
         save()
 
@@ -159,6 +158,7 @@ struct CorrectionApplier {
             reminder.syncState = .pendingUpload
             reminder.confidence = 1
             reminder.needsReview = false
+            reminder.isUserEdited = true
             save()
 
             return Outcome(
@@ -173,6 +173,7 @@ struct CorrectionApplier {
             task.dueDate = newDate
             task.updatedAt = .now
             task.syncState = .pendingUpload
+            task.isUserEdited = true
             save()
 
             return Outcome(
@@ -194,6 +195,7 @@ struct CorrectionApplier {
             reminder.title = cleaned
             reminder.updatedAt = .now
             reminder.syncState = .pendingUpload
+            reminder.isUserEdited = true
             save()
             return Outcome(
                 action: .titleChanged(from: old, to: cleaned),
@@ -207,6 +209,7 @@ struct CorrectionApplier {
             task.title = cleaned
             task.updatedAt = .now
             task.syncState = .pendingUpload
+            task.isUserEdited = true
             save()
             return Outcome(
                 action: .titleChanged(from: old, to: cleaned),
@@ -222,6 +225,7 @@ struct CorrectionApplier {
             note.body = cleaned
             note.updatedAt = .now
             note.syncState = .pendingUpload
+            note.isUserEdited = true
             save()
             return Outcome(
                 action: .titleChanged(from: old, to: cleaned),
@@ -248,7 +252,7 @@ struct CorrectionApplier {
             guard let snapshot = outcome.removed else { return .failed }
             return restore(snapshot)
 
-        case .amountChanged(let from, let to):
+        case .amountChanged(let from, _):
             guard let capture = capture(withID: outcome.captureID),
                   let expense = capture.expenses.first
             else { return .failed }
@@ -256,12 +260,8 @@ struct CorrectionApplier {
             expense.amount = from
             expense.updatedAt = .now
             expense.syncState = .pendingUpload
+            expense.isUserEdited = false
 
-            // Вместе с суммой правился текст записи, возвращаем и его.
-            capture.text = capture.text.replacingOccurrences(
-                of: NSDecimalNumber(decimal: to).stringValue,
-                with: NSDecimalNumber(decimal: from).stringValue
-            )
             capture.updatedAt = .now
             save()
             return .reverted

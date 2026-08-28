@@ -92,6 +92,9 @@ struct EntityMaterializer {
         switch item.kind {
         case .note:
             if let existing = capture.notes.first(where: { $0.parsedItemID == item.id }) {
+                // Поправленное человеком не перезаписываем: разбор здесь
+                // заведомо хуже, он уже один раз ошибся.
+                guard !existing.isUserEdited else { return true }
                 existing.title = item.title
                 existing.body = item.details.isEmpty ? item.sourceText : item.details
                 existing.confidence = item.confidence
@@ -113,6 +116,7 @@ struct EntityMaterializer {
 
         case .task:
             if let existing = capture.tasks.first(where: { $0.parsedItemID == item.id }) {
+                guard !existing.isUserEdited else { return true }
                 existing.title = item.title
                 existing.details = item.details
                 existing.dueDate = item.dueDate
@@ -140,6 +144,7 @@ struct EntityMaterializer {
             guard let fireDate = item.dueDate else { return false }
 
             if let existing = capture.reminders.first(where: { $0.parsedItemID == item.id }) {
+                guard !existing.isUserEdited else { return true }
                 existing.title = item.title
                 existing.details = item.details
                 existing.fireDate = fireDate
@@ -171,6 +176,7 @@ struct EntityMaterializer {
             guard let amount = item.amount else { return false }
 
             if let existing = capture.expenses.first(where: { $0.parsedItemID == item.id }) {
+                guard !existing.isUserEdited else { return true }
                 existing.amount = amount
                 existing.currencyCode = item.currencyCode ?? existing.currencyCode
                 existing.category = item.category ?? existing.category

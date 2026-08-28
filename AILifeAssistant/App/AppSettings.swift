@@ -21,6 +21,7 @@ final class AppSettings {
         static let keepAudio = "settings.audio.keep"
         static let hapticsEnabled = "settings.haptics.enabled"
         static let hasCompletedOnboarding = "settings.onboarding.done"
+        static let noisyEnvironment = "settings.vad.noisy"
     }
 
     init(defaults: UserDefaults? = nil) {
@@ -36,6 +37,7 @@ final class AppSettings {
         self.keepAudioRecordings = self.defaults.object(forKey: Key.keepAudio) as? Bool ?? true
         self.hapticsEnabled = self.defaults.object(forKey: Key.hapticsEnabled) as? Bool ?? true
         self.hasCompletedOnboarding = self.defaults.bool(forKey: Key.hasCompletedOnboarding)
+        self.isNoisyEnvironment = self.defaults.bool(forKey: Key.noisyEnvironment)
     }
 
     /// Какой движок распознавания использовать.
@@ -66,9 +68,31 @@ final class AppSettings {
         didSet { defaults.set(hasCompletedOnboarding, forKey: Key.hasCompletedOnboarding) }
     }
 
+    /// Запись в шумном месте: пороги детектора поднимаются.
+    ///
+    /// Настройка, а не догадка алгоритма. Отличить ровный уличный шум
+    /// от ровной речи по одному среднеквадратичному уровню нельзя, это
+    /// проверено: попытка подстраивать пороги автоматически измеряла фон
+    /// по голосу человека, если он начинал говорить сразу после нажатия.
+    /// Здесь решение принимает тот, кто слышит, что вокруг.
+    var isNoisyEnvironment: Bool {
+        didSet { defaults.set(isNoisyEnvironment, forKey: Key.noisyEnvironment) }
+    }
+
     /// Конфигурация детектора под текущий режим.
     var vadConfiguration: VoiceActivityDetector.Configuration {
-        isDictationMode ? .dictation : .default
+        var configuration: VoiceActivityDetector.Configuration = isDictationMode ? .dictation : .default
+
+        if isNoisyEnvironment {
+            // Порог речи поднимается выше уличного фона, порог тишины
+            // за ним: иначе шум считается речью и автостоп не срабатывает
+            // никогда, а запись идёт до потолка длительности.
+            configuration.speechThreshold *= 2.5
+            configuration.silenceThreshold *= 2.5
+            configuration.leadingSilenceTimeout += 2
+        }
+
+        return configuration
     }
 
     /// Локаль для движков, которым нужна явная подсказка языка.

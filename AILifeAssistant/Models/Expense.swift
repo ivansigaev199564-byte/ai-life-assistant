@@ -30,6 +30,15 @@ final class Expense {
     var confidence: Double
     var needsReview: Bool
 
+    /// Значение поправил человек.
+    ///
+    /// Разбор не должен перезаписывать то, что пользователь исправил
+    /// вручную или голосом: раньше правка суммы держалась только на том,
+    /// что исправление переписывало текст записи подстрокой, а это могло
+    /// задеть соседние числа в той же фразе.
+    var isUserEdited: Bool = false
+
+
     private var syncStateRaw: String
     var remoteID: String?
     var lastSyncedAt: Date?
