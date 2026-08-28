@@ -65,6 +65,12 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         CFBundleLocalizations: [en, ru]
         CFBundleAllowMixedLocalizations: true
+        # Схема ссылок: уведомления и виджет открывают конкретное дело,
+        # а не приложение вообще.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.ivans.ailifeassistant.deeplink
+            CFBundleTypeRole: Editor
+            CFBundleURLSchemes: [ailife]
         ITSAppUsesNonExemptEncryption: false
         NSSupportsLiveActivities: true
         NSMicrophoneUsageDescription: "Микрофон нужен, чтобы записывать ваши голосовые заметки и команды."
@@ -90,6 +96,10 @@ targets:
       # перерисовки нельзя, система его просто не запустит.
       - path: AILifeAssistant/Models
       - path: AILifeAssistant/App/Persistence.swift
+      - path: AILifeAssistant/App/SharedDefaults.swift
+      # Ссылки внутрь приложения собираются в виджете, а разбираются
+      # в приложении: тип должен быть один и тот же.
+      - path: AILifeAssistant/App/DeepLink.swift
       - path: AILifeAssistant/Core/Logging.swift
     settings:
       base:
@@ -118,6 +128,7 @@ targets:
       # и конфигурация хранилища, но не весь слой разбора.
       - path: AILifeAssistant/Models
       - path: AILifeAssistant/App/Persistence.swift
+      - path: AILifeAssistant/App/SharedDefaults.swift
       - path: AILifeAssistant/Core/Logging.swift
     settings:
       base:

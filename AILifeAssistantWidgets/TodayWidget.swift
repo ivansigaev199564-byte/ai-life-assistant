@@ -148,17 +148,25 @@ struct TodayWidgetView: View {
 
     // MARK: Строка дела
 
+    /// Значок слева это настоящая галочка: дело закрывается прямо здесь,
+    /// без открытия приложения. Ради этого виджет и нужен.
     private func itemRow(_ item: TodayItem, compact: Bool) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: item.isReminder ? "bell.fill" : "circle")
-                .font(.system(size: compact ? 9 : 11))
-                // Просроченное красное: это единственное, ради чего стоит
-                // тратить цвет в таком маленьком пространстве.
-                .foregroundStyle(item.isOverdue ? Color.red : Color.accentColor)
+            Button(intent: CompleteItemIntent(itemID: item.id, isReminder: item.isReminder)) {
+                Image(systemName: item.isReminder ? "bell.fill" : "circle")
+                    .font(.system(size: compact ? 9 : 11))
+                    // Просроченное красное: это единственное, ради чего стоит
+                    // тратить цвет в таком маленьком пространстве.
+                    .foregroundStyle(item.isOverdue ? Color.red : Color.accentColor)
+                    // Палец толще значка: цель нажатия расширена прозрачной
+                    // областью, иначе промахнуться легче, чем попасть.
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Отметить выполненным: " + item.title)
 
-            Text(item.title)
-                .font(compact ? .caption2 : .caption)
-                .lineLimit(1)
+            titleLink(item, compact: compact)
 
             Spacer(minLength: 4)
 
@@ -170,10 +178,24 @@ struct TodayWidgetView: View {
         }
     }
 
+    /// Заголовок ведёт к самой записи, а не в общий список.
+    @ViewBuilder
+    private func titleLink(_ item: TodayItem, compact: Bool) -> some View {
+        let label = Text(item.title)
+            .font(compact ? .caption2 : .caption)
+            .lineLimit(1)
+
+        if let destination = item.deepLink {
+            Link(destination: destination) { label }
+        } else {
+            label
+        }
+    }
+
     private func timeText(_ item: TodayItem) -> String {
         guard let date = item.date else { return "без времени" }
         return date.formatted(date: .omitted, time: .shortened)
     }
 
-    private static let appURL = URL(string: "habitapp://today")
+    private static let appURL = DeepLink.today.url
 }

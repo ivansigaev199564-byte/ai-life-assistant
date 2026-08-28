@@ -9,11 +9,16 @@ import SwiftUI
 struct RootView: View {
 
     @Environment(CaptureCoordinator.self) private var coordinator
-    @Environment(PermissionsManager.self) private var permissions
     @Environment(\.capabilities) private var capabilities
     @Environment(AppSettings.self) private var settings
-    @Environment(UndoService.self) private var undoService
     @Environment(ProcessingQueue.self) private var processingQueue
+    @Environment(\.modelContext) private var modelContext
+
+    /// Ссылки из уведомлений и виджета. Отсутствует в предпросмотре.
+    @Environment(NotificationRouter.self) private var router: NotificationRouter?
+
+    /// Запись, которую попросили открыть извне.
+    @State private var routedCapture: CaptureItem?
 
     @State private var isShowingSettings = false
     @State private var isShowingReview = false
@@ -65,11 +70,8 @@ struct RootView: View {
             .sheet(isPresented: $isShowingStats) { StatsView() }
             .sheet(isPresented: $isShowingContext) { ContextView() }
             .sheet(isPresented: $isShowingTextInput) { textInputSheet }
-            .overlay {
-                if coordinator.phase.isActive {
-                    RecordingOverlay()
-                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
-                }
+            .navigationDestination(item: $routedCapture) { capture in
+                CaptureDetailView(capture: capture, processingQueue: processingQueue)
             }
             .fullScreenCover(isPresented: showOnboarding) {
                 OnboardingView {
@@ -77,8 +79,47 @@ struct RootView: View {
                 }
             }
             .animation(DS.Motion.phase, value: coordinator.phase)
-            .animation(DS.Motion.enter, value: undoService.pending?.id)
+            // Экран записи и баннеры живут в отдельном окне поверх всего:
+            // здесь они прятались за любым открытым листом.
+            .task { openPendingLink() }
+            .onChange(of: router?.pendingLink) { _, _ in openPendingLink() }
         }
+    }
+
+    // MARK: Переходы извне
+
+    /// Открывает запись, о которой говорит уведомление или виджет.
+    private func openPendingLink() {
+        guard let link = router?.consume() else { return }
+
+        switch link {
+        case .today:
+            routedCapture = nil
+        case .capture(let id):
+            routedCapture = capture(with: id)
+        case .reminder(let id):
+            routedCapture = reminder(with: id)?.source
+        case .task(let id):
+            routedCapture = task(with: id)?.source
+        }
+    }
+
+    private func capture(with id: UUID) -> CaptureItem? {
+        var descriptor = FetchDescriptor<CaptureItem>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return try? modelContext.fetch(descriptor).first
+    }
+
+    private func reminder(with id: UUID) -> Reminder? {
+        var descriptor = FetchDescriptor<Reminder>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return try? modelContext.fetch(descriptor).first
+    }
+
+    private func task(with id: UUID) -> TaskItem? {
+        var descriptor = FetchDescriptor<TaskItem>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return try? modelContext.fetch(descriptor).first
     }
 
     // MARK: Шапка
@@ -169,22 +210,6 @@ struct RootView: View {
 
     private var captureBar: some View {
         VStack(spacing: DS.Spacing.xs) {
-            if case .failed(let error) = coordinator.phase {
-                errorBanner(error)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-
-            // Баннер отмены стоит над кнопкой записи: именно туда смотрит
-            // человек сразу после того, как отпустил её.
-            if let pending = undoService.pending {
-                UndoBanner(
-                    action: pending,
-                    onUndo: { undoService.undo() },
-                    onDismiss: { undoService.dismiss() }
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-
             Button {
                 Task { await coordinator.start(source: .inApp) }
             } label: {
@@ -206,29 +231,6 @@ struct RootView: View {
             .frame(height: 140)
             .allowsHitTesting(false)
             .offset(y: 20)
-        }
-    }
-
-    private func errorBanner(_ error: AppError) -> some View {
-        SurfaceCard(padding: DS.Spacing.sm) {
-            HStack(alignment: .top, spacing: DS.Spacing.xs) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(DS.Palette.warning)
-
-                VStack(alignment: .leading, spacing: DS.Spacing.xxs) {
-                    Text(error.errorDescription ?? "Ошибка")
-                        .font(DS.Font.caption)
-                        .foregroundStyle(DS.Palette.textPrimary)
-
-                    if error.suggestsSystemSettings {
-                        Button("Открыть настройки") {
-                            permissions.openSystemSettings()
-                        }
-                        .font(DS.Font.caption)
-                        .foregroundStyle(DS.Palette.accent)
-                    }
-                }
-            }
         }
     }
 

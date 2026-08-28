@@ -18,7 +18,7 @@ enum Persistence {
 
     /// Идентификатор группы приложений. Общий контейнер нужен, чтобы
     /// расширения писали в ту же базу, что и приложение.
-    static let appGroupIdentifier = "group.com.ivans.ailifeassistant"
+    static let appGroupIdentifier = SharedDefaults.suiteName
 
     /// Доступна ли группа приложений в этой сборке.
     ///

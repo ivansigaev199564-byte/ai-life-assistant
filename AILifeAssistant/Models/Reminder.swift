@@ -99,9 +99,22 @@ final class Reminder {
     }
 
     func complete() {
-        isCompleted = true
-        completedAt = .now
+        setCompleted(true)
+    }
+
+    /// Ставит или снимает отметку выполнения.
+    ///
+    /// Оба направления нужны в равной мере: по галочке промахиваются чаще,
+    /// чем ошибаются в самом деле, и вернуть напоминание в работу должно быть
+    /// так же просто, как закрыть.
+    func setCompleted(_ completed: Bool) {
+        isCompleted = completed
+        completedAt = completed ? .now : nil
         updatedAt = .now
         syncState = .pendingUpload
+    }
+
+    func toggleCompletion() {
+        setCompleted(!isCompleted)
     }
 }

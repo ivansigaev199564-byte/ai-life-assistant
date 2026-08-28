@@ -20,10 +20,9 @@ struct ControlCaptureIntent: AppIntent {
     static var openAppWhenRun: Bool = true
 
     func perform() async throws -> some IntentResult {
-        // Флаг кладётся в общие настройки: приложение прочитает его
-        // при запуске и начнёт запись, указав правильный источник.
-        let defaults = UserDefaults(suiteName: "group.com.ivans.ailifeassistant")
-        defaults?.set(true, forKey: "pendingCaptureFromControl")
+        // Флаг кладётся в общие настройки: приложение читает его, когда
+        // оказывается на экране, и начинает запись с правильным источником.
+        SharedDefaults.requestCapture()
         return .result()
     }
 }

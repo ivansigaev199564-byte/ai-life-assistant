@@ -13,6 +13,12 @@ struct TodayItem: Identifiable, Hashable {
     let date: Date?
     let isReminder: Bool
     let isOverdue: Bool
+
+    /// Ссылка на само дело: нажатие открывает запись, из которой оно
+    /// появилось, а не общий список.
+    var deepLink: URL? {
+        (isReminder ? DeepLink.reminder(id) : DeepLink.task(id)).url
+    }
 }
 
 struct TodayEntry: TimelineEntry {

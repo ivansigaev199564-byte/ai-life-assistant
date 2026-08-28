@@ -4,6 +4,10 @@ import SwiftUI
 ///
 /// В ленте те же сущности показываются компактными плашками, здесь нужен
 /// полный вид: суть, время, сумма и пометка о проверке.
+///
+/// У задач и напоминаний строка ещё и работает: слева стоит настоящая
+/// галочка. Дело, которое нельзя закрыть там, где оно показано, превращает
+/// список дел в список сожалений.
 struct ParsedEntityRow: View {
 
     enum Kind {
@@ -15,22 +19,36 @@ struct ParsedEntityRow: View {
 
     let kind: Kind
 
-    var body: some View {
-        HStack(spacing: DS.Spacing.sm) {
-            ZStack {
-                RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous)
-                    .fill(tint.opacity(0.14))
-                    .frame(width: 34, height: 34)
+    /// Отсутствует в предпросмотре и в тех местах, где сервис не пробрасывался:
+    /// строка тогда просто не реагирует на нажатие, а не падает.
+    @Environment(CompletionService.self) private var completion: CompletionService?
 
-                Image(systemName: symbolName)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(tint)
+    var body: some View {
+        if isCompletable {
+            row.contextMenu {
+                Button {
+                    toggleCompletion()
+                } label: {
+                    Label(
+                        isCompleted ? "Вернуть в работу" : "Готово",
+                        systemImage: isCompleted ? "arrow.uturn.backward" : "checkmark"
+                    )
+                }
             }
+        } else {
+            row
+        }
+    }
+
+    private var row: some View {
+        HStack(spacing: DS.Spacing.xxs) {
+            leadingIcon
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(DS.Font.entityTitle)
-                    .foregroundStyle(DS.Palette.textPrimary)
+                    .foregroundStyle(isCompleted ? DS.Palette.textTertiary : DS.Palette.textPrimary)
+                    .strikethrough(isCompleted, color: DS.Palette.textTertiary)
                     .lineLimit(2)
 
                 if let subtitle {
@@ -55,7 +73,67 @@ struct ParsedEntityRow: View {
                     .accessibilityLabel("Требует проверки")
             }
         }
-        .padding(.vertical, DS.Spacing.xxs)
+        .animation(DS.Motion.enter, value: isCompleted)
+    }
+
+    // MARK: Значок
+
+    /// Область нажатия всегда 44 на 44, даже когда значок ни на что не
+    /// реагирует: иначе строки разных типов разъезжаются по левому краю.
+    @ViewBuilder
+    private var leadingIcon: some View {
+        if isCompletable {
+            Button {
+                toggleCompletion()
+            } label: {
+                iconBadge
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isCompleted ? "Снять отметку выполнения" : "Отметить выполненным")
+            .accessibilityValue(isCompleted ? "выполнено" : "не выполнено")
+        } else {
+            iconBadge
+        }
+    }
+
+    private var iconBadge: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: DS.Radius.sm, style: .continuous)
+                .fill(tint.opacity(isCompleted ? 0.08 : 0.14))
+                .frame(width: 34, height: 34)
+
+            Image(systemName: symbolName)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(isCompleted ? DS.Palette.textTertiary : tint)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
+    }
+
+    // MARK: Отметка выполнения
+
+    private var isCompletable: Bool {
+        switch kind {
+        case .task, .reminder: return true
+        case .note, .expense: return false
+        }
+    }
+
+    private var isCompleted: Bool {
+        switch kind {
+        case .task(let task): return task.isCompleted
+        case .reminder(let reminder): return reminder.isCompleted
+        case .note, .expense: return false
+        }
+    }
+
+    private func toggleCompletion() {
+        switch kind {
+        case .task(let task): completion?.toggle(task)
+        case .reminder(let reminder): completion?.toggle(reminder)
+        case .note, .expense: break
+        }
     }
 
     // MARK: Содержимое по типу
@@ -72,8 +150,8 @@ struct ParsedEntityRow: View {
     private var symbolName: String {
         switch kind {
         case .note: return "text.alignleft"
-        case .task: return "checkmark.circle.fill"
-        case .reminder: return "bell.fill"
+        case .task(let task): return task.isCompleted ? "checkmark.circle.fill" : "circle"
+        case .reminder(let reminder): return reminder.isCompleted ? "checkmark.circle.fill" : "bell.fill"
         case .expense(let expense): return expense.category.symbolName
         }
     }
@@ -102,12 +180,12 @@ struct ParsedEntityRow: View {
         }
     }
 
+    /// Сумма справа. Слово «готово» отсюда убрано: состояние теперь видно
+    /// по галочке и зачёркнутому заголовку, а VoiceOver читает его значением.
     private var trailing: String? {
         switch kind {
         case .expense(let expense): return expense.formattedAmount
-        case .task(let task): return task.isCompleted ? "готово" : nil
-        case .reminder(let reminder): return reminder.isCompleted ? "готово" : nil
-        case .note: return nil
+        case .note, .task, .reminder: return nil
         }
     }
 

@@ -92,8 +92,16 @@ final class TaskItem {
     }
 
     func toggleCompletion() {
-        isCompleted.toggle()
-        completedAt = isCompleted ? .now : nil
+        setCompleted(!isCompleted)
+    }
+
+    /// Ставит или снимает отметку выполнения.
+    ///
+    /// Явное значение нужно там, где состояние приходит извне: из виджета,
+    /// из системных Напоминаний, из синхронизации.
+    func setCompleted(_ completed: Bool) {
+        isCompleted = completed
+        completedAt = completed ? .now : nil
         updatedAt = .now
         syncState = .pendingUpload
     }
