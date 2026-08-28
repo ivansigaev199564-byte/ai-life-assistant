@@ -116,7 +116,20 @@ final class CaptureCoordinator {
         self.sessionManager.onInterruption = { [weak self] interruption in
             guard let self else { return }
             switch interruption {
-            case .began, .mediaServicesReset, .routeChanged:
+            case .routeChanged:
+                // Смена маршрута это не обязательно конец записи: чаще
+                // всего человек просто надел наушники. Пробуем продолжить
+                // на новом устройстве и останавливаемся, только если
+                // продолжить не вышло.
+                guard self.phase == .listening else { return }
+
+                if self.recorder?.restartForRouteChange() == true {
+                    self.applyRoutePreset()
+                } else {
+                    Task { await self.stop(reason: .interrupted) }
+                }
+
+            case .began, .mediaServicesReset:
                 Task { await self.stop(reason: .interrupted) }
             case .ended:
                 // Автовозобновление не делаем: пользователь сам решит,

@@ -105,9 +105,13 @@ final class CorrectionTests: XCTestCase {
         XCTAssertEqual(expense.confidence, 1, "Правка человеком надёжнее любого разбора")
     }
 
-    /// Текст захвата тоже правится: иначе повторный разбор вернёт
-    /// старую сумму и перезатрёт исправление.
-    func testCorrectionUpdatesCaptureText() throws {
+    /// Сказанное остаётся сказанным.
+    ///
+    /// Раньше исправление подменяло число прямо в тексте записи, чтобы
+    /// повторный разбор не вернул старую сумму. Цена была велика: замена
+    /// шла подстрокой и могла задеть соседнее число, а запись переставала
+    /// соответствовать произнесённому. Теперь правка держится на пометке.
+    func testCorrectionKeepsCaptureText() throws {
         let capture = CaptureItem(text: "купил кофе за 46")
         context.insert(capture)
         context.insert(Expense(amount: 46, source: capture))
@@ -118,8 +122,9 @@ final class CorrectionTests: XCTestCase {
             CorrectionDetector.Correction(target: .amount(64), confidence: 0.9, matchedText: "64")
         )
 
-        XCTAssertTrue(capture.text.contains("64"))
-        XCTAssertFalse(capture.text.contains("46"))
+        XCTAssertEqual(capture.text, "купил кофе за 46")
+        XCTAssertEqual(capture.expenses.first?.amount, 64)
+        XCTAssertEqual(capture.expenses.first?.isUserEdited, true)
     }
 
     func testCancellationRemovesRecentCapture() throws {

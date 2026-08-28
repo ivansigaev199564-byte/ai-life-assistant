@@ -99,6 +99,51 @@ final class AudioEngineRecorder: @unchecked Sendable {
         Log.voice.debug("Аудиодвижок запущен: \(format.sampleRate) Гц, \(format.channelCount) кан.")
     }
 
+    /// Переустанавливает отвод под новый маршрут звука.
+    ///
+    /// Подключение гарнитуры посреди фразы меняет частоту дискретизации
+    /// и число каналов, а отвод остаётся настроенным на прежний формат:
+    /// буферы либо перестают приходить, либо приходят мусором. Раньше
+    /// на это событие запись просто останавливалась, теперь она
+    /// продолжается на новом устройстве.
+    ///
+    /// - Returns: удалось ли перезапустить захват.
+    @discardableResult
+    func restartForRouteChange() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard isRunning else { return false }
+
+        let input = engine.inputNode
+        input.removeTap(onBus: 0)
+        engine.stop()
+
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            Log.voice.error("Новый маршрут не отдал формат, запись остановлена")
+            isRunning = false
+            return false
+        }
+
+        input.installTap(onBus: 0, bufferSize: bufferSize, format: format) { [weak self] buffer, time in
+            self?.handle(buffer: buffer, time: time)
+        }
+
+        engine.prepare()
+        do {
+            try engine.start()
+        } catch {
+            Log.voice.error("Движок не перезапустился: \(error.localizedDescription)")
+            input.removeTap(onBus: 0)
+            isRunning = false
+            return false
+        }
+
+        Log.voice.notice("Отвод переустановлен: \(format.sampleRate) Гц, \(format.channelCount) кан.")
+        return true
+    }
+
     /// Останавливает движок и закрывает файл.
     @discardableResult
     func stop() -> Result {

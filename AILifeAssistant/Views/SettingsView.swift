@@ -22,6 +22,7 @@ struct SettingsView: View {
     @Environment(NetworkMonitor.self) private var network: NetworkMonitor?
 
     @State private var isPreparingWhisper = false
+    @State private var whisperTask: Task<Void, Never>?
     @State private var whisperError: String?
     @State private var recordingsSize: Int64 = 0
     @State private var exportedFile: URL?
@@ -174,11 +175,20 @@ struct SettingsView: View {
     @ViewBuilder
     private var whisperStatus: some View {
         if isPreparingWhisper {
-            HStack(spacing: DS.Spacing.xs) {
-                ProgressView().controlSize(.small)
-                Text("Загружаю модель")
+            VStack(alignment: .leading, spacing: DS.Spacing.xxs) {
+                HStack(spacing: DS.Spacing.xs) {
+                    ProgressView().controlSize(.small)
+                    Text("Загружаю модель")
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.Palette.textSecondary)
+                }
+
+                // Ждать сотни мегабайт без единой кнопки нельзя. Полосы
+                // с процентами здесь нет намеренно: библиотека не отдаёт
+                // прогресс загрузки, и рисовать выдуманный некрасиво.
+                Button("Отменить") { cancelWhisperDownload() }
                     .font(DS.Font.caption)
-                    .foregroundStyle(DS.Palette.textSecondary)
+                    .foregroundStyle(DS.Palette.danger)
             }
         } else if WhisperKitRecognizer.isModelReady {
             Label("Модель загружена", systemImage: "checkmark.circle.fill")
@@ -232,6 +242,15 @@ struct SettingsView: View {
                 isOn: Binding(
                     get: { settings.keepAudioRecordings },
                     set: { settings.keepAudioRecordings = $0 }
+                )
+            )
+
+            toggleRow(
+                "Шумное место",
+                hint: "Улица, кафе, машина. Приложение перестанет принимать фоновый шум за речь, но говорить придётся чуть громче.",
+                isOn: Binding(
+                    get: { settings.isNoisyEnvironment },
+                    set: { settings.isNoisyEnvironment = $0 }
                 )
             )
 
@@ -558,14 +577,32 @@ struct SettingsView: View {
         isPreparingWhisper = true
         whisperError = nil
 
-        Task {
+        whisperTask = Task {
             do {
                 try await WhisperKitRecognizer().prepare()
+            } catch is CancellationError {
+                // Человек передумал, это не ошибка.
             } catch {
+                guard !Task.isCancelled else { return }
                 whisperError = error.localizedDescription
             }
+
+            guard !Task.isCancelled else { return }
             isPreparingWhisper = false
+            whisperTask = nil
         }
+    }
+
+    /// Отменяет ожидание загрузки.
+    ///
+    /// Саму закачку внутри библиотеки прервать нечем, поэтому она может
+    /// докачаться в фоне. Экран об этом больше не врёт: он просто перестаёт
+    /// ждать и возвращает кнопку загрузки.
+    private func cancelWhisperDownload() {
+        whisperTask?.cancel()
+        whisperTask = nil
+        isPreparingWhisper = false
+        whisperError = nil
     }
 }
 

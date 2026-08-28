@@ -43,6 +43,13 @@ struct EntityMaterializer {
         let people = resolvePeople(intent.people)
         let projects = resolveProjects(intent.projects)
 
+        // Идентификаторы элементов разбора между прогонами не совпадают:
+        // повторный разбор создаёт их заново. Поэтому сущности, созданные
+        // прошлым разбором, разбираются по типам и раздаются по порядку.
+        // Без этого «Разобрать заново» плодило вторую копию каждой записи,
+        // а исправленная человеком сумма соседствовала с восстановленной.
+        var pool = Pool(capture: capture)
+
         for item in intent.items {
             guard item.isValid else {
                 result.discarded += 1
@@ -55,7 +62,13 @@ struct EntityMaterializer {
                 continue
             }
 
-            let existed = apply(item, capture: capture, people: people, projects: projects)
+            let existed = apply(
+                item,
+                capture: capture,
+                people: people,
+                projects: projects,
+                pool: &pool
+            )
             if existed {
                 result.updated += 1
             } else {
@@ -78,11 +91,45 @@ struct EntityMaterializer {
     // MARK: Создание и обновление
 
     /// Возвращает true, если сущность уже существовала и была обновлена.
+    /// Сущности прошлого разбора, ещё не отданные ни одному элементу.
+    struct Pool {
+        var notes: [Note]
+        var tasks: [TaskItem]
+        var reminders: [Reminder]
+        var expenses: [Expense]
+
+        init(capture: CaptureItem) {
+            notes = capture.notes.filter { $0.parsedItemID != nil }
+            tasks = capture.tasks.filter { $0.parsedItemID != nil }
+            reminders = capture.reminders.filter { $0.parsedItemID != nil }
+            expenses = capture.expenses.filter { $0.parsedItemID != nil }
+        }
+
+        mutating func takeNote(id: UUID) -> Note? { Self.take(&notes, id: id) { $0.parsedItemID } }
+        mutating func takeTask(id: UUID) -> TaskItem? { Self.take(&tasks, id: id) { $0.parsedItemID } }
+        mutating func takeReminder(id: UUID) -> Reminder? { Self.take(&reminders, id: id) { $0.parsedItemID } }
+        mutating func takeExpense(id: UUID) -> Expense? { Self.take(&expenses, id: id) { $0.parsedItemID } }
+
+        /// Забирает подходящую сущность: сперва по идентификатору элемента,
+        /// иначе первую свободную того же типа.
+        private static func take<Model>(
+            _ items: inout [Model],
+            id: UUID,
+            matching: (Model) -> UUID?
+        ) -> Model? {
+            if let index = items.firstIndex(where: { matching($0) == id }) {
+                return items.remove(at: index)
+            }
+            return items.isEmpty ? nil : items.removeFirst()
+        }
+    }
+
     private func apply(
         _ item: ParsedItem,
         capture: CaptureItem,
         people: [Person],
-        projects: [Project]
+        projects: [Project],
+        pool: inout Pool
     ) -> Bool {
         // Людей, названных в самом элементе, отбираем из общего списка фразы.
         let itemPeople = people.filter { person in
@@ -91,10 +138,14 @@ struct EntityMaterializer {
 
         switch item.kind {
         case .note:
-            if let existing = capture.notes.first(where: { $0.parsedItemID == item.id }) {
+            if let existing = pool.takeNote(id: item.id) {
+                // Поправленное человеком не перезаписываем: разбор здесь
+                // заведомо хуже, он уже один раз ошибся.
+                guard !existing.isUserEdited else { return true }
                 existing.title = item.title
                 existing.body = item.details.isEmpty ? item.sourceText : item.details
                 existing.confidence = item.confidence
+                existing.parsedItemID = item.id
                 existing.updatedAt = .now
                 existing.syncState = .pendingUpload
                 return true
@@ -112,12 +163,14 @@ struct EntityMaterializer {
             return false
 
         case .task:
-            if let existing = capture.tasks.first(where: { $0.parsedItemID == item.id }) {
+            if let existing = pool.takeTask(id: item.id) {
+                guard !existing.isUserEdited else { return true }
                 existing.title = item.title
                 existing.details = item.details
                 existing.dueDate = item.dueDate
                 existing.priority = item.priority
                 existing.confidence = item.confidence
+                existing.parsedItemID = item.id
                 existing.updatedAt = .now
                 existing.syncState = .pendingUpload
                 return true
@@ -139,13 +192,15 @@ struct EntityMaterializer {
         case .reminder:
             guard let fireDate = item.dueDate else { return false }
 
-            if let existing = capture.reminders.first(where: { $0.parsedItemID == item.id }) {
+            if let existing = pool.takeReminder(id: item.id) {
+                guard !existing.isUserEdited else { return true }
                 existing.title = item.title
                 existing.details = item.details
                 existing.fireDate = fireDate
                 existing.recurrenceRule = item.recurrenceRule
                 existing.priority = item.priority
                 existing.confidence = item.confidence
+                existing.parsedItemID = item.id
                 existing.updatedAt = .now
                 existing.syncState = .pendingUpload
                 return true
@@ -170,13 +225,15 @@ struct EntityMaterializer {
         case .expense:
             guard let amount = item.amount else { return false }
 
-            if let existing = capture.expenses.first(where: { $0.parsedItemID == item.id }) {
+            if let existing = pool.takeExpense(id: item.id) {
+                guard !existing.isUserEdited else { return true }
                 existing.amount = amount
                 existing.currencyCode = item.currencyCode ?? existing.currencyCode
                 existing.category = item.category ?? existing.category
                 existing.details = item.title.isEmpty ? item.details : item.title
                 existing.merchant = item.merchant
                 existing.confidence = item.confidence
+                existing.parsedItemID = item.id
                 existing.updatedAt = .now
                 existing.syncState = .pendingUpload
                 return true
