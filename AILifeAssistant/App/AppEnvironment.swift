@@ -305,6 +305,8 @@ final class AppEnvironment {
             settings: settings
         )
         let deletion = DeletionService(modelContext: container.mainContext)
+        // Без обработчика: в тестах правки никуда не уезжают.
+        let changes = ChangeTracker()
 
         return Testing(
             container: container,
@@ -313,7 +315,8 @@ final class AppEnvironment {
             permissions: permissions,
             processingQueue: queue,
             completionService: completion,
-            deletionService: deletion
+            deletionService: deletion,
+            changeTracker: changes
         )
     }
 }
