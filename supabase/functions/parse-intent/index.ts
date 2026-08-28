@@ -1,4 +1,6 @@
-import { authenticate } from "../_shared/auth.ts";
+import { type AuthContext, authenticate } from "../_shared/auth.ts";
+import { consumeQuota, QuotaExceededError } from "../_shared/quota.ts";
+import { boundedList, LIMITS, optionalString, requireString, ValidationError } from "../_shared/validate.ts";
 import { corsHeaders, errorResponse, jsonResponse } from "../_shared/cors.ts";
 import {
   buildUserPrompt,
@@ -37,10 +39,22 @@ Deno.serve(async (request: Request) => {
     return errorResponse("Поддерживается только POST", 405);
   }
 
+  let auth: AuthContext;
   try {
-    await authenticate(request);
+    auth = await authenticate(request);
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Нет доступа", 401);
+  }
+
+  // Предел на пользователя. Без него один вошедший через Apple может
+  // прогнать за ночь тысячи платных запросов через чужой ключ.
+  try {
+    await consumeQuota(auth, "parse");
+  } catch (error) {
+    if (error instanceof QuotaExceededError) {
+      return errorResponse(error.message, 429);
+    }
+    return errorResponse("Не удалось проверить предел обращений", 503);
   }
 
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
@@ -48,22 +62,35 @@ Deno.serve(async (request: Request) => {
     return errorResponse("Ключ модели не задан на сервере", 500);
   }
 
-  let payload: ParseRequest;
+  let raw: Record<string, unknown>;
   try {
-    payload = await request.json();
+    raw = await request.json();
   } catch {
     return errorResponse("Тело запроса не является JSON");
   }
 
-  const text = (payload.text ?? "").trim();
-  if (!text) {
-    return errorResponse("Пустой текст, разбирать нечего");
+  // Проверяется всё тело, а не только текст: списки известных людей
+  // и проектов раньше уходили в промпт как есть, без ограничений
+  // по количеству, длине и типу.
+  let payload: ParseRequest;
+  try {
+    payload = {
+      text: requireString(raw.text, "text", LIMITS.text),
+      reference_date: requireString(raw.reference_date, "reference_date", 40),
+      time_zone_identifier: optionalString(raw.time_zone_identifier, "time_zone_identifier", LIMITS.timeZone) ?? "UTC",
+      default_currency_code: optionalString(raw.default_currency_code, "default_currency_code", LIMITS.currencyCode) ?? "RUB",
+      language_code: optionalString(raw.language_code, "language_code", LIMITS.languageCode),
+      known_people: boundedList(raw.known_people, "known_people"),
+      known_projects: boundedList(raw.known_projects, "known_projects"),
+    };
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      return errorResponse(error.message);
+    }
+    return errorResponse("Тело запроса не прошло проверку");
   }
-  // Ограничение длины: голосовая заметка на десять минут это не наш случай,
-  // а вот случайно отправленный огромный текст обойдётся дорого.
-  if (text.length > 4000) {
-    return errorResponse("Текст длиннее допустимого предела");
-  }
+
+  const text = payload.text;
 
   const body = {
     model: MODEL,
@@ -111,7 +138,9 @@ Deno.serve(async (request: Request) => {
 
       if (!response.ok) {
         const details = await response.text();
-        console.error("Ошибка модели", response.status, details);
+        // В лог уходит только код: тело ответа модели содержит эхо запроса,
+        // то есть текст пользователя.
+        console.error("Ошибка модели", response.status);
         return errorResponse("Модель отклонила запрос", 502);
       }
 
@@ -134,7 +163,10 @@ Deno.serve(async (request: Request) => {
       return jsonResponse(toolUse.input);
     } catch (error) {
       if (attempt === MAX_ATTEMPTS) {
-        console.error("Сетевая ошибка при обращении к модели", error);
+        console.error(
+          "Сетевая ошибка при обращении к модели",
+          error instanceof Error ? error.name : "unknown",
+        );
         return errorResponse("Не удалось связаться с моделью", 502);
       }
       await new Promise((resolve) => setTimeout(resolve, 2 ** (attempt - 1) * 1000));

@@ -1,4 +1,5 @@
-import { authenticate } from "../_shared/auth.ts";
+import { type AuthContext, authenticate } from "../_shared/auth.ts";
+import { consumeQuota, QuotaExceededError } from "../_shared/quota.ts";
 import { corsHeaders, errorResponse, jsonResponse } from "../_shared/cors.ts";
 
 /// Генерация эмбеддингов для смыслового поиска.
@@ -33,11 +34,22 @@ Deno.serve(async (request: Request) => {
     return errorResponse("Поддерживается только POST", 405);
   }
 
-  let auth;
+  let auth: AuthContext;
   try {
     auth = await authenticate(request);
   } catch (error) {
     return errorResponse(error instanceof Error ? error.message : "Нет доступа", 401);
+  }
+
+  // Предел на пользователя: платный вызов не должен зависеть только от
+  // того, что человек сумел войти через Apple.
+  try {
+    await consumeQuota(auth, "embed");
+  } catch (error) {
+    if (error instanceof QuotaExceededError) {
+      return errorResponse(error.message, 429);
+    }
+    return errorResponse("Не удалось проверить предел обращений", 503);
   }
 
   const apiKey = Deno.env.get("OPENAI_API_KEY");
@@ -80,7 +92,7 @@ Deno.serve(async (request: Request) => {
 
     if (!response.ok) {
       const details = await response.text();
-      console.error("Ошибка эмбеддингов", response.status, details);
+      console.error("Ошибка эмбеддингов", response.status);
       return errorResponse("Не удалось посчитать векторы", 502);
     }
 
@@ -92,7 +104,7 @@ Deno.serve(async (request: Request) => {
       .sort((left: { index: number }, right: { index: number }) => left.index - right.index)
       .map((entry: { embedding: number[] }) => entry.embedding);
   } catch (error) {
-    console.error("Сетевая ошибка при расчёте векторов", error);
+    console.error("Сетевая ошибка при расчёте векторов", error instanceof Error ? error.name : "unknown");
     return errorResponse("Сервис эмбеддингов недоступен", 502);
   }
 
@@ -115,7 +127,7 @@ Deno.serve(async (request: Request) => {
     .upsert(rows, { onConflict: "entity_id,entity_type" });
 
   if (error) {
-    console.error("Не удалось сохранить векторы", error);
+    console.error("Не удалось сохранить векторы", (error as { code?: string })?.code ?? "unknown");
     return errorResponse("Векторы посчитаны, но не сохранены", 500);
   }
 
