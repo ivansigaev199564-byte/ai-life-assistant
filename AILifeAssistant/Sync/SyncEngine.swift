@@ -244,19 +244,19 @@ private extension SyncEngine {
         // Указатель на захваты строится один раз за приём. Раньше он
         // собирался заново внутри каждой ветки, то есть пять раз подряд,
         // и каждый раз поднимал таблицу захватов целиком.
-        let captures = captureIndex()
+        let knownCaptures = captureIndex()
 
         let notes: [NoteDTO] = try await client.fetchChanges(from: "notes", since: since)
-        applyNotes(notes, captures: captures)
+        applyNotes(notes, captures: knownCaptures)
 
         let tasks: [TaskDTO] = try await client.fetchChanges(from: "tasks", since: since)
-        applyTasks(tasks, captures: captures)
+        applyTasks(tasks, captures: knownCaptures)
 
         let reminders: [ReminderDTO] = try await client.fetchChanges(from: "reminders", since: since)
-        applyReminders(reminders, captures: captures)
+        applyReminders(reminders, captures: knownCaptures)
 
         let expenses: [ExpenseDTO] = try await client.fetchChanges(from: "expenses", since: since)
-        applyExpenses(expenses, captures: captures)
+        applyExpenses(expenses, captures: knownCaptures)
 
         try modelContext.save()
     }
