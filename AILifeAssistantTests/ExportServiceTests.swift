@@ -172,7 +172,10 @@ final class ExportServiceTests: XCTestCase {
     }
 
     func testFileNameCarriesExtension() async throws {
-        XCTAssertEqual(try await export(.json).pathExtension, "json")
-        XCTAssertEqual(try await export(.csv).pathExtension, "csv")
+        let json = try await export(.json)
+        let csv = try await export(.csv)
+
+        XCTAssertEqual(json.pathExtension, "json")
+        XCTAssertEqual(csv.pathExtension, "csv")
     }
 }
