@@ -190,11 +190,10 @@ final class ProcessingQueue {
 
         let applier = CorrectionApplier(modelContext: modelContext)
 
-        // Цель ищется по времени создания текущего захвата: иначе он сам
-        // окажется самой свежей записью и станет исправлять себя.
-        guard applier.recentCapture(before: capture.createdAt) != nil else { return false }
-
-        let outcome = applier.apply(correction, at: capture.createdAt)
+        // Цель ищется строго раньше самой фразы и с исключением её самой:
+        // к этому моменту она уже сохранена как запись и без этих условий
+        // исправляла бы саму себя.
+        let outcome = applier.apply(correction, at: capture.createdAt, excluding: capture.id)
         guard outcome.action != .noTarget else { return false }
 
         // Сама фраза-исправление в ленте не нужна: она уже сделала работу.

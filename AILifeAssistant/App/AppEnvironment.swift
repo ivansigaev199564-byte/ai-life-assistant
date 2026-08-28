@@ -112,9 +112,25 @@ final class AppEnvironment {
         }
 
         // Исправление показывается тем же баннером: пользователь видит,
-        // что именно поняло приложение из его поправки.
+        // что именно поняло приложение из его поправки, и может вернуть
+        // всё назад.
         processingQueue.onCorrectionApplied = { outcome in
-            undo.register(correction: outcome, captureID: UUID())
+            undo.register(correction: outcome)
+        }
+
+        // Отменённая запись не должна уехать на сервер как существующая.
+        undo.onUndone = { action in
+            guard case .captureCreated(let id) = action.kind else { return }
+            sync.markDeleted(.capture, id: id)
+        }
+
+        // Восстановленную запись нужно разобрать заново: вернулась она
+        // пустой, без задач и расходов.
+        undo.onCaptureRestored = { [weak queue] id in
+            sync.markChanged(.capture, id: id)
+            Task { @MainActor in
+                await queue?.processPending()
+            }
         }
 
         // Системные интеграции: уведомления и зеркалирование напоминаний.
@@ -161,8 +177,11 @@ final class AppEnvironment {
             }
 
             // Баннер обновляется на результат разбора: пока шёл разбор,
-            // в нём был сырой текст, теперь видно, что создано.
-            undo.register(captureCreated: capture)
+            // в нём был сырой текст, теперь видно, что создано. Именно
+            // обновляется, а не создаётся заново: иначе разбор старых
+            // записей при запуске предлагал бы их удалить, а быстрая
+            // диктовка двух фраз подряд подменяла бы баннер.
+            undo.updateSummary(for: capture)
         }
 
         // Делегат ставится сразу: нажатие на уведомление может быть тем самым

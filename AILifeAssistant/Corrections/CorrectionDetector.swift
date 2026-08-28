@@ -28,17 +28,26 @@ enum CorrectionDetector {
 
     // MARK: Маркеры
 
-    /// Отмена: «отмени», «удали последнее», «забудь про это».
+    /// Отмена как самостоятельная реплика: человек сказал только это.
     ///
-    /// Маркеры намеренно длиннее очевидных. Короткое «забудь» ловит
-    /// «не забудь купить молоко», то есть просьба не забыть удаляла бы
-    /// предыдущую запись. Отмена сказанного всегда звучит определённее,
-    /// чем одно слово посреди фразы.
-    private static let cancellationMarkers = [
-        "отмени", "отменить", "удали последн", "удалить последн", "сотри последн",
-        "забудь это", "забудь последн", "забудь про это", "не надо записывать",
-        "не нужно записывать", "не сохраняй",
-        "cancel that", "delete that", "never mind", "forget that", "undo that"
+    /// Сравнивается со всей фразой целиком, а не ищется внутри неё. Поиск
+    /// подстрокой стоил дорого: «встречу отменили, напомни позвонить Игорю»
+    /// удаляло предыдущую запись вместе с аудиофайлом.
+    private static let standaloneCancellations: Set<String> = [
+        "отмени", "отмена", "отменить", "удали", "удалить", "сотри",
+        "забудь", "не сохраняй", "не записывай",
+        "cancel", "delete", "never mind", "nevermind", "forget it", "undo"
+    ]
+
+    /// Отмена с опорой: в самой фразе сказано, что именно отменяют.
+    private static let cancellationPhrases = [
+        "отмени последн", "отмени эту запись", "отмени запись", "отмени это",
+        "отменить последн", "отменить запись",
+        "удали последн", "удалить последн", "удали эту запись", "удали запись",
+        "сотри последн", "сотри это", "сотри запись",
+        "забудь это", "забудь последн", "забудь про это",
+        "не надо записывать", "не нужно записывать", "не сохраняй это",
+        "cancel that", "delete that", "forget that", "undo that", "delete the last"
     ]
 
     /// Обороты, внутри которых маркеры выглядят как отмена, но ею не являются.
@@ -54,8 +63,23 @@ enum CorrectionDetector {
         "not ", "no,", "actually", "instead", "correction", "i meant"
     ]
 
-    /// Слова, за которыми следует верное значение: «а», «то есть», «rather».
-    private static let replacementMarkers = [", а ", " а ", "то есть", "именно", "rather", "but "]
+    /// Слова, за которыми следует верное значение: «а», «то есть», «нет».
+    ///
+    /// «Нет» здесь только с запятой или окружённое пробелами: иначе «у меня
+    /// нет времени, напомни позвонить» читалось бы как поправка.
+    private static let replacementMarkers = [
+        ", а ", " а ", "то есть", "именно", "вместо ",
+        ", нет,", ", нет ", " нет, ",
+        "rather", "but ", ", no,", " no, "
+    ]
+
+    /// Фраза целиком посвящена поправке: «нет, шестьдесят четыре».
+    /// Связки в ней нет, но и сомнений тоже.
+    private static let selfCorrectionPrefixes = ["нет,", "нет ", "no,", "no "]
+
+    /// Что отбрасывается по краям при сравнении фразы целиком.
+    private static let edgeCharacters = CharacterSet.whitespacesAndNewlines
+        .union(.punctuationCharacters)
 
     // MARK: Разбор
 
@@ -72,7 +96,7 @@ enum CorrectionDetector {
             return false
         }
 
-        if cancellationMarkers.contains(where: { normalized.contains($0) }) {
+        if cancellationMarker(in: normalized) != nil {
             return true
         }
 
@@ -81,7 +105,41 @@ enum CorrectionDetector {
         let hasCorrectionMarker = correctionMarkers.contains { normalized.hasPrefix($0) || normalized.contains(" \($0)") }
         let hasReplacement = replacementMarkers.contains { normalized.contains($0) }
 
-        return hasCorrectionMarker && hasReplacement
+        if hasCorrectionMarker, hasReplacement {
+            return true
+        }
+
+        // «Нет, шестьдесят четыре» сразу после записи: классическая
+        // самопоправка, которую человек произносит чаще всего.
+        return selfCorrectionTail(of: normalized) != nil
+    }
+
+    /// Хвост после «нет,» в начале фразы. Пустой хвост поправкой не считается.
+    private static func selfCorrectionTail(of normalized: String) -> String? {
+        guard let prefix = selfCorrectionPrefixes.first(where: { normalized.hasPrefix($0) }) else {
+            return nil
+        }
+
+        let tail = normalized
+            .dropFirst(prefix.count)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return tail.count >= 2 ? tail : nil
+    }
+
+    /// Отмена ли это.
+    ///
+    /// Либо вся фраза целиком про отмену, либо в ней прямо сказано, что
+    /// именно отменяют. Просто слово «отменить» посреди предложения ничего
+    /// не отменяет: «нужно отменить подписку» это задача, а не команда.
+    private static func cancellationMarker(in normalized: String) -> String? {
+        let whole = normalized.trimmingCharacters(in: edgeCharacters)
+
+        if standaloneCancellations.contains(whole) {
+            return whole
+        }
+
+        return cancellationPhrases.first { normalized.contains($0) }
     }
 
     /// Извлекает исправление из фразы.
@@ -92,7 +150,7 @@ enum CorrectionDetector {
             return nil
         }
 
-        if let marker = cancellationMarkers.first(where: { normalized.contains($0) }) {
+        if let marker = cancellationMarker(in: normalized) {
             return Correction(target: .cancellation, confidence: 0.9, matchedText: marker)
         }
 
@@ -140,7 +198,19 @@ enum CorrectionDetector {
             }
         }
 
-        guard let bestRange else { return nil }
-        return String(text[bestRange.upperBound...])
+        if let bestRange {
+            return String(text[bestRange.upperBound...])
+        }
+
+        // Связки нет, но фраза начинается с «нет,»: верное значение это всё
+        // остальное. Смещение считаем по самой строке, а не по её копии
+        // в нижнем регистре: индексы разных строк несовместимы.
+        let normalized = IntentKeywords.normalize(text)
+        guard let prefix = selfCorrectionPrefixes.first(where: { normalized.hasPrefix($0) }),
+              text.count > prefix.count
+        else { return nil }
+
+        let start = text.index(text.startIndex, offsetBy: prefix.count)
+        return String(text[start...])
     }
 }
