@@ -18,7 +18,7 @@ struct AnthropicClient: LLMClient {
     init(
         configuration: APIConfiguration = .default,
         apiKey: String? = nil,
-        session: URLSession = .shared
+        session: URLSession = PrivateSession.shared
     ) {
         self.configuration = configuration
         self.apiKey = apiKey

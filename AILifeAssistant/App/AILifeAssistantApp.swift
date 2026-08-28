@@ -38,6 +38,7 @@ struct AILifeAssistantApp: App {
                     .environment(environment.eventKit)
                     .environment(environment.notifications)
                     .environment(environment.notificationRouter)
+                    .environment(environment.appLock)
                     .environment(\.capabilities, environment.capabilities)
                     .modelContainer(environment.container)
             }
@@ -47,9 +48,15 @@ struct AILifeAssistantApp: App {
 
             // Тактильный движок останавливается в фоне, при возврате
             // его нужно поднять заново, иначе первый отклик потеряется.
-            if newPhase == .active {
+            switch newPhase {
+            case .active:
                 HapticEngine.shared.prewarm()
                 environment.permissions.refresh()
+                environment.appLock.applicationWillEnterForeground()
+            case .background:
+                environment.appLock.applicationDidEnterBackground()
+            default:
+                break
             }
         }
     }

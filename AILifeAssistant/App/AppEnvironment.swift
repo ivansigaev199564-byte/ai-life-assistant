@@ -35,6 +35,7 @@ final class AppEnvironment {
     let completionService: CompletionService
     let liveActivity: LiveActivityController
     let notificationRouter: NotificationRouter
+    let appLock: AppLock
 
     private init() {
         let container: ModelContainer
@@ -55,6 +56,7 @@ final class AppEnvironment {
         let liveActivity = LiveActivityController()
         self.liveActivity = liveActivity
         self.notificationRouter = NotificationRouter()
+        self.appLock = AppLock()
 
         self.coordinator = CaptureCoordinator(
             modelContext: container.mainContext,
@@ -202,6 +204,10 @@ final class AppEnvironment {
         Task.detached(priority: .utility) {
             let store = RecordingStore()
             store.pruneOldRecordings()
+
+            // Полный дамп дневника, который человек однажды выгрузил
+            // и не отправил, не должен пережить перезапуск.
+            await ExportService.removeStaleExports()
         }
 
         // Захваты, которые не успели разобраться в прошлый раз.

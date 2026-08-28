@@ -26,11 +26,26 @@ struct RecordingStore: Sendable {
             let folder = base.appendingPathComponent("Recordings", isDirectory: true)
 
             if !fileManager.fileExists(atPath: folder.path) {
-                try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+                // Голос это самое чувствительное, что есть в приложении.
+                // completeUnlessOpen, а не complete: уже открытый файл
+                // продолжает писаться, если экран погас во время записи,
+                // но украденный заблокированный телефон записи не отдаёт.
+                try fileManager.createDirectory(
+                    at: folder,
+                    withIntermediateDirectories: true,
+                    attributes: [.protectionKey: FileProtectionType.completeUnlessOpen]
+                )
                 var mutable = folder
                 var values = URLResourceValues()
                 values.isExcludedFromBackup = true
                 try? mutable.setResourceValues(values)
+            } else {
+                // Каталог мог быть создан прежней версией приложения
+                // без класса защиты.
+                try? fileManager.setAttributes(
+                    [.protectionKey: FileProtectionType.completeUnlessOpen],
+                    ofItemAtPath: folder.path
+                )
             }
             return folder
         }
