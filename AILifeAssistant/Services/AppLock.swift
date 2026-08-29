@@ -8,6 +8,30 @@ import Observation
 /// в руках разблокированный телефон, читает всё. Замок необязательный,
 /// потому что для голосового захвата важна скорость, и человек сам решает,
 /// что для него дороже.
+/// Чем подтверждают личность.
+///
+/// Протокол нужен ради проверяемости: тест с настоящим LAContext уходит
+/// в системный диалог и висит до таймаута, а прогон из-за одного такого
+/// теста растягивается с пятнадцати секунд до пяти минут.
+protocol AuthenticationContext: Sendable {
+    func canAuthenticate() -> Bool
+    func authenticate(reason: String) async throws -> Bool
+}
+
+extension LAContext: @unchecked Sendable {}
+
+extension LAContext: AuthenticationContext {
+
+    func canAuthenticate() -> Bool {
+        canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
+    }
+
+    func authenticate(reason: String) async throws -> Bool {
+        localizedCancelTitle = "Отмена"
+        return try await evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
+    }
+}
+
 @MainActor
 @Observable
 final class AppLock {
@@ -23,6 +47,7 @@ final class AppLock {
     private(set) var lastFailure: String?
 
     private let defaults: UserDefaults
+    private let contextFactory: @Sendable () -> AuthenticationContext
     private var backgroundedAt: Date?
 
     private static let enabledKey = "security.appLock.enabled"
@@ -36,11 +61,15 @@ final class AppLock {
 
     /// Доступна ли биометрия или код-пароль на этом устройстве.
     var isAvailable: Bool {
-        LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
+        contextFactory().canAuthenticate()
     }
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        contextFactory: @escaping @Sendable () -> AuthenticationContext = { LAContext() }
+    ) {
         self.defaults = defaults
+        self.contextFactory = contextFactory
         let enabled = defaults.bool(forKey: Self.enabledKey)
         self.isEnabled = enabled
         // При запуске приложение заперто сразу, если замок включён:
@@ -74,15 +103,13 @@ final class AppLock {
     func unlock() async {
         guard isLocked else { return }
 
-        let context = LAContext()
-        context.localizedCancelTitle = "Отмена"
+        let context = contextFactory()
 
         // Проверить нечем: код-пароль сняли, биометрия сломалась, устройство
         // не то. Держать человека снаружи собственных записей в этом случае
         // нельзя: настройки, где выключается замок, сами за замком, и выхода
         // из положения не осталось бы вовсе.
-        var error: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
+        guard context.canAuthenticate() else {
             Log.ui.notice("Замок снят: устройству нечем подтвердить личность")
             isEnabled = false
             isLocked = false
@@ -91,9 +118,8 @@ final class AppLock {
         }
 
         do {
-            let success = try await context.evaluatePolicy(
-                .deviceOwnerAuthentication,
-                localizedReason: "Разблокируйте, чтобы открыть свои записи"
+            let success = try await context.authenticate(
+                reason: "Разблокируйте, чтобы открыть свои записи"
             )
             isLocked = !success
             lastFailure = nil

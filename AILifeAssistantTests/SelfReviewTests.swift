@@ -28,6 +28,18 @@ final class SelfReviewTests: XCTestCase {
 
     // MARK: Замок
 
+    /// Устройство, которому нечем подтвердить личность.
+    private struct UnavailableContext: AuthenticationContext {
+        func canAuthenticate() -> Bool { false }
+        func authenticate(reason: String) async throws -> Bool { false }
+    }
+
+    /// Устройство, где проверка проходит.
+    private struct AcceptingContext: AuthenticationContext {
+        func canAuthenticate() -> Bool { true }
+        func authenticate(reason: String) async throws -> Bool { true }
+    }
+
     /// Замок опирается на устройство. Если подтвердить личность нечем
     /// (код-пароль сняли, биометрия сломалась), запертым остаётся всё,
     /// включая настройки, где замок выключается. Выхода из положения
@@ -36,17 +48,26 @@ final class SelfReviewTests: XCTestCase {
         let defaults = UserDefaults(suiteName: UUID().uuidString)!
         defaults.set(true, forKey: "security.appLock.enabled")
 
-        let lock = AppLock(defaults: defaults)
+        let lock = AppLock(defaults: defaults) { UnavailableContext() }
         XCTAssertTrue(lock.isLocked)
 
-        // В симуляторе без настроенной биометрии и кода проверка недоступна,
-        // и замок обязан открыться сам.
         await lock.unlock()
 
-        if !lock.isAvailable {
-            XCTAssertFalse(lock.isLocked, "Проверить нечем, держать запертым нельзя")
-            XCTAssertFalse(lock.isEnabled, "Замок должен выключиться, а не спрашивать снова")
-        }
+        XCTAssertFalse(lock.isLocked, "Проверить нечем, держать запертым нельзя")
+        XCTAssertFalse(lock.isEnabled, "Замок должен выключиться, а не спрашивать снова")
+    }
+
+    func testLockOpensAfterSuccessfulCheck() async {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        defaults.set(true, forKey: "security.appLock.enabled")
+
+        let lock = AppLock(defaults: defaults) { AcceptingContext() }
+        XCTAssertTrue(lock.isLocked)
+
+        await lock.unlock()
+
+        XCTAssertFalse(lock.isLocked)
+        XCTAssertTrue(lock.isEnabled, "Успешная проверка замок не выключает")
     }
 
     // MARK: Повторный разбор
