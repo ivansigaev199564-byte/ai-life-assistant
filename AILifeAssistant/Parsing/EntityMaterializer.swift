@@ -76,6 +76,12 @@ struct EntityMaterializer {
             }
         }
 
+        // Осталось от прошлого разбора и никому не досталось: значит,
+        // сказанное изменилось. Например, из «купил кофе за 300 и напомни
+        // позвонить» после правки текста ушла вторая половина, а напоминание
+        // висело бы вечно.
+        result.discarded += discardLeftovers(from: pool)
+
         capture.parsedAt = .now
         capture.parsingEngine = intent.engine
         capture.parseConfidence = intent.confidence
@@ -91,6 +97,34 @@ struct EntityMaterializer {
     // MARK: Создание и обновление
 
     /// Возвращает true, если сущность уже существовала и была обновлена.
+    /// Убирает сущности прошлого разбора, которым не нашлось пары.
+    ///
+    /// Поправленное человеком не трогаем: он знает лучше разбора,
+    /// и молча стирать его правку нельзя.
+    /// - Returns: сколько записей удалено.
+    private func discardLeftovers(from pool: Pool) -> Int {
+        var removed = 0
+
+        for note in pool.notes where !note.isUserEdited {
+            modelContext.delete(note)
+            removed += 1
+        }
+        for task in pool.tasks where !task.isUserEdited {
+            modelContext.delete(task)
+            removed += 1
+        }
+        for reminder in pool.reminders where !reminder.isUserEdited {
+            modelContext.delete(reminder)
+            removed += 1
+        }
+        for expense in pool.expenses where !expense.isUserEdited {
+            modelContext.delete(expense)
+            removed += 1
+        }
+
+        return removed
+    }
+
     /// Сущности прошлого разбора, ещё не отданные ни одному элементу.
     struct Pool {
         var notes: [Note]

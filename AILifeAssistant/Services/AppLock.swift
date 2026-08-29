@@ -77,6 +77,19 @@ final class AppLock {
         let context = LAContext()
         context.localizedCancelTitle = "Отмена"
 
+        // Проверить нечем: код-пароль сняли, биометрия сломалась, устройство
+        // не то. Держать человека снаружи собственных записей в этом случае
+        // нельзя: настройки, где выключается замок, сами за замком, и выхода
+        // из положения не осталось бы вовсе.
+        var error: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
+            Log.ui.notice("Замок снят: устройству нечем подтвердить личность")
+            isEnabled = false
+            isLocked = false
+            lastFailure = nil
+            return
+        }
+
         do {
             let success = try await context.evaluatePolicy(
                 .deviceOwnerAuthentication,

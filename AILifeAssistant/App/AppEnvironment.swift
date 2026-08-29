@@ -207,10 +207,13 @@ final class AppEnvironment {
 
             // Напоминание без уведомления это обещание, которое приложение
             // не выполнит: телефон просто промолчит в нужный момент.
-            let newReminders = capture.reminders
+            //
+            // В задачу уходят идентификаторы: разбор асинхронный, и записи
+            // вполне может не стать к моменту постановки уведомления.
+            let reminderIDs = capture.reminders.map(\.id)
             Task { @MainActor in
-                for reminder in newReminders {
-                    await mirror.register(reminder)
+                for id in reminderIDs {
+                    await mirror.register(reminderID: id)
                 }
             }
 
