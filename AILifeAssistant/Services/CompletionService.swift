@@ -61,8 +61,12 @@ final class CompletionService {
         // Уведомление снимается сразу: телефон не должен звонить о деле,
         // которое человек только что закрыл. Возврат в работу так же
         // возвращает уведомление, если срок ещё не прошёл.
+        //
+        // В задачу уходит идентификатор, а не сам объект: запись может
+        // исчезнуть, пока задача ждёт своей очереди.
         if let mirror {
-            Task { await mirror.update(reminder) }
+            let identifier = reminder.id
+            Task { await mirror.update(reminderID: identifier) }
         }
 
         finish(.reminder, id: reminder.id)

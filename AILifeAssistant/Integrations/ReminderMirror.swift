@@ -55,6 +55,31 @@ final class ReminderMirror {
         }
     }
 
+    // MARK: Одна запись по идентификатору
+
+    /// Ставит уведомление напоминанию, найденному в момент вызова.
+    ///
+    /// Именно по идентификатору: держать объект SwiftData в фоновой задаче
+    /// нельзя. Между постановкой задачи и её выполнением запись может быть
+    /// удалена, и обращение к уничтоженному объекту роняет приложение
+    /// без возможности перехвата.
+    func register(reminderID id: UUID) async {
+        guard let reminder = reminder(withID: id) else { return }
+        await register(reminder)
+    }
+
+    /// Обновляет уведомление напоминания, найденного в момент вызова.
+    func update(reminderID id: UUID) async {
+        guard let reminder = reminder(withID: id) else { return }
+        await update(reminder)
+    }
+
+    private func reminder(withID id: UUID) -> Reminder? {
+        var descriptor = FetchDescriptor<Reminder>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return try? modelContext.fetch(descriptor).first
+    }
+
     // MARK: Одна запись
 
     /// Ставит уведомление и, если включено, зеркалит в системные Напоминания.
